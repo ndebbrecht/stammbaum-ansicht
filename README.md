@@ -37,6 +37,8 @@ nur lesend eingebunden. `PORT` ist standardmäßig 8765 und wird aus
 Sicherheitsgründen nur auf `127.0.0.1` des Docker-Hosts veröffentlicht.
 `FEATURED_PERSON_ID` setzt die Startperson. Die Datenbank liegt in einem
 benannten Docker-Volume; `restart: unless-stopped` sorgt für Wiederanlauf.
+Auf macOS muss zusätzlich Docker Desktop beim Anmelden gestartet werden; die
+Compose-Neustartregel allein startet Docker Desktop nicht.
 
 Optionaler Passwortschutz mit Benutzername `stammbaum`:
 
