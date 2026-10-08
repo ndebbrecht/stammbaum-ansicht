@@ -122,7 +122,7 @@ class SyntheticImportTest(unittest.TestCase):
                 self.assertIn("Mehrzeilige Notiz", profile)
                 self.assertIn("Einwanderung", profile)
                 self.assertIn("Ereignisnotiz", profile)
-                self.assertIn('<a href="/person/I2">Bea Beispiel</a> · Patin', profile)
+                self.assertIn('Patin: <a href="/person/I2">Bea Beispiel</a>', profile)
                 source = source_page(connection, "S1")
                 self.assertIn("Stadtarchiv Musterstadt", source)
                 self.assertIn("ABC 12", source)

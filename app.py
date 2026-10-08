@@ -85,6 +85,7 @@ NAME_TYPES = {
     "other": "Weiterer Name", "nick": "Rufname", "variation": "Namensvariante",
 }
 DETAIL_METADATA = {"CHAN", "_CRE", "_COR"}
+RELATION_LABELS = {"Godfather": "Pate", "Godmother": "Patin"}
 EVENT_ICONS = {
     "Geburt": "birth", "Tod": "memorial", "Bestattung": "memorial", "Trauerfeier": "memorial",
     "Heirat": "rings", "Verlobung": "rings", "Aufgebot": "rings", "Kirchliche Trauung": "rings",
@@ -507,7 +508,8 @@ def facts_html(connection, owner_type, owner_id, media_root=None):
     entries = []
     for fact in facts:
         citations = citations_for(connection, "fact", str(fact["id"]))
-        fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")), ("Angabe", fact["value"])]
+        fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")),
+                  ("Genauer Ort", fact["address"]), ("Angabe", fact["value"])]
         details = ''.join(f'<div><dt>{label}</dt><dd>{escape(value)}</dd></div>' for label, value in fields if value)
         details = f'<dl class="fact-meta">{details}</dl>' if details else '<p>Ohne weitere Angabe</p>'
         media = media_for(connection, "fact", str(fact["id"]), media_root)
@@ -603,7 +605,11 @@ def person_page(connection, person_id, media_root=None):
     sibling_links = ''.join(f'<li>{relative_link(member)}</li>' for member in siblings.values())
     sibling_section = (f'<nav class="sibling-strip" aria-label="Geschwister"><h2>Geschwister</h2>'
                        f'<ul>{sibling_links}</ul></nav>') if siblings else ''
-    content = f'''<div class="person-layout">{relation_rail("Eltern", parents, "parents")}
+    association_links = list_items([
+        f'{escape(RELATION_LABELS.get(member["relation"], member["relation"] or "Beziehung"))}: '
+        f'{person_link(member)}' for member in associations
+    ]) if associations else ''
+    content = f'''<div class="person-layout"><aside class="family-rail">{relation_rail("Eltern", parents, "parents")}{sibling_section}</aside>
 {relation_rail("Kinder", children, "children", "mobile-children")}
 <div class="person-content"><p class="back">{link('← Zur Startseite', '/')}</p>
 <section class="person-hero{' has-portrait' if images[person_id] else ''}"><div class="profile-summary"><div><p class="eyebrow">Personenprofil</p><div class="person-heading"><h1>{escape(person["name"])}</h1>
@@ -611,7 +617,6 @@ def person_page(connection, person_id, media_root=None):
 <p>Lebensereignisse, Quellen und Medien aus dem importierten GEDCOM.</p>{label_html}
 <p>{original_record_link(connection, person_id)}</p></div>
 {portrait_figure(person, images[person_id], "profile-portrait")}</div></section>
-{sibling_section}
 <nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#details">Weitere Angaben</a><a href="#relations">Beziehungen</a></nav>
 <div class="columns"><section class="panel" id="events" aria-labelledby="events-title"><h2 id="events-title">Lebensereignisse</h2>{facts_html(connection, "person", person_id, media_root)}</section>
 <section class="panel" id="family-events" aria-labelledby="family-events-title"><h2 id="family-events-title">Partnerschaft & Hochzeit</h2>{family_events or '<p>Keine gemeinsamen Ereignisse im GEDCOM verzeichnet.</p>'}</section></div>
@@ -624,11 +629,8 @@ def person_page(connection, person_id, media_root=None):
 <section class="panel" id="details"><h2>Weitere Angaben</h2>{additional_fields}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
 <p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
-<p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p></section>'''
-    if associations:
-        content += '<section class="panel"><h2>Weitere Beziehungen</h2>' + list_items([
-            person_link(person) + (" · " + escape(person["relation"]) if person["relation"] else "")
-            for person in associations]) + '</section>'
+<p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p>
+{f'<h3>Paten und weitere Beziehungen</h3>{association_links}' if association_links else ''}</section>'''
     content += f'</div>{relation_rail("Kinder", children, "children", "desktop-children")}</div>'
     return layout(person["name"], content)
 
@@ -832,7 +834,8 @@ def event_page(connection, fact_id, media_root=None):
     place_label = ", ".join(place_parts(fact["place"] or ""))[:500]
     has_coordinates = fact["latitude"] is not None and fact["longitude"] is not None
     map_query = (f'{fact["latitude"]:.6f},{fact["longitude"]:.6f}' if has_coordinates else place_label)
-    fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")), ("Angabe", fact["value"])]
+    fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")),
+              ("Genauer Ort", fact["address"]), ("Angabe", fact["value"])]
     place_record = connection.execute("SELECT record_id FROM places WHERE name=? ORDER BY record_id LIMIT 1",
                                       (fact["place"],)).fetchone() if fact["place"] else None
     details = "".join(f'<dt>{label}</dt><dd>{escape(value)}'

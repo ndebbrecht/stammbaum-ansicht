@@ -256,9 +256,11 @@ class FeatureTest(unittest.TestCase):
             with database(database_path) as connection:
                 page = person_page(connection, "I1", root)
                 self.assertIn('class="relation-rail relation-rail-parents', page)
+                self.assertIn('class="family-rail"', page)
                 self.assertIn('class="relation-rail relation-rail-children mobile-children"', page)
                 self.assertIn('class="relation-rail relation-rail-children desktop-children"', page)
                 self.assertIn('aria-label="Geschwister"', page)
+                self.assertLess(page.index('aria-label="Geschwister"'), page.index('class="person-content"'))
                 self.assertIn('class="profile-portrait"', page)
                 self.assertIn('src="/media/M1"', page)
                 self.assertIn('src="/media/M2" alt=""', page)
@@ -271,6 +273,35 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn('href="/person/I7"', page)
                 self.assertNotIn('role="tab"', page)
                 self.assertNotIn('Familie mit', page)
+
+    def test_birth_address_and_godfather_are_visible(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Clara /Beispiel/
+1 BIRT
+2 DATE 1 JAN 2000
+2 PLAC Musterstadt
+2 ADDR Musterklinik
+1 ASSO @I2@
+2 RELA Godfather
+0 @I2@ INDI
+1 NAME Emil /Beispiel/
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                self.assertEqual(connection.execute("SELECT address FROM facts WHERE id=1").fetchone()[0], "Musterklinik")
+                profile = person_page(connection, "I1")
+                self.assertIn("Genauer Ort", profile)
+                self.assertIn("Musterklinik", profile)
+                self.assertIn('Pate: <a href="/person/I2">Emil Beispiel</a>', profile)
+                self.assertNotIn("Godfather", profile)
+                event = event_page(connection, 1)
+                self.assertIn("Genauer Ort", event)
+                self.assertIn("Musterklinik", event)
 
     def test_multigeneration_tree_respects_depth_and_family_branches(self):
         gedcom = """0 @I1@ INDI
