@@ -184,7 +184,7 @@ def portrait_figure(person, image, css_class):
 def citations_for(connection, owner_type, owner_id):
     if owner_type == "fact":
         return connection.execute(
-            "SELECT citations.source_id, citations.page, sources.title FROM citations LEFT JOIN sources ON sources.id=citations.source_id WHERE fact_id=?",
+            "SELECT citations.source_id, citations.page, citations.detail, sources.title FROM citations LEFT JOIN sources ON sources.id=citations.source_id WHERE fact_id=?",
             (owner_id,),
         ).fetchall()
     return connection.execute(
@@ -194,11 +194,50 @@ def citations_for(connection, owner_type, owner_id):
     ).fetchall()
 
 
-def citations_html(citations):
-    return list_items([
-        link(item["title"] or f'Quelle {item["source_id"]}', f'/source/{quote(item["source_id"])}')
-        + (f' · {escape(item["page"])}' if item["page"] else "") for item in citations
-    ]) if citations else '<p class="unverified">Kein GEDCOM-Quellenverweis vorhanden.</p>'
+def citations_html(connection, citations, media_root=None):
+    if not citations:
+        return '<p class="unverified">Kein formaler GEDCOM-Quellenverweis für dieses Ereignis.</p>'
+    entries = []
+    for citation in citations:
+        source_id = citation["source_id"]
+        source_route = f'/source/{quote(source_id)}'
+        archive_links = connection.execute(
+            "SELECT archive_file_id, page, status FROM source_archive_links WHERE source_id=? ORDER BY archive_file_id",
+            (source_id,),
+        ).fetchall()
+        page_number = re.fullmatch(r"(?:Seite\s*|S\.?\s*)?(\d+)", (citation["page"] or "").strip(), re.IGNORECASE)
+        matching_page = [item for item in archive_links if item["page"] is not None
+                         and page_number and str(item["page"]) == page_number.group(1)]
+        direct_links = matching_page or (archive_links if len(archive_links) == 1 else [])
+        if len(direct_links) == 1:
+            document = direct_links[0]
+            route = f'/document/{document["archive_file_id"]}'
+            if document["page"]:
+                route += f'#page={document["page"]}'
+            status = "Dateizuordnung geprüft" if document["status"] == "verified" else "Dateizuordnung vorgeschlagen"
+            label = "Archivscan zur Belegseite öffnen" if matching_page else "Einzigen Archivscan der Quelle öffnen"
+            scan = f'<p>{link(label, route)} · {status}'
+            if not matching_page and citation["page"]:
+                scan += ' · Belegseite im Scan nicht zugeordnet'
+            scan += '</p>'
+        elif archive_links:
+            scan = (f'<p>{len(archive_links)} Archivdateien der Quelle zugeordnet; keine eindeutig diesem Ereignis '
+                    f'zugeordnete Datei oder Seite. {link("Archivdateien der Quelle prüfen", source_route)}</p>')
+        else:
+            media = connection.execute(
+                "SELECT media.id, media.relative_path FROM media_links JOIN media ON media.id=media_links.media_id "
+                "WHERE media_links.owner_type='source' AND media_links.owner_id=? AND media.relative_path IS NOT NULL",
+                (source_id,),
+            ).fetchall()
+            available = [item for item in media if media_root and (Path(media_root) / item["relative_path"]).is_file()]
+            scan = (f'<p>{link("Quelldatei öffnen", "/media/" + quote(available[0]["id"]))} · '
+                    'Datei an Quelle angehängt; Belegseite nicht zugeordnet.</p>' if len(available) == 1
+                    else '<p>Kein eindeutig verknüpfter Originalscan für dieses Ereignis.</p>')
+        page = f'<p>GEDCOM-Belegstelle: {escape(citation["page"])}</p>' if citation["page"] else '<p>Keine Belegstelle im GEDCOM angegeben.</p>'
+        detail = f'<p>{escape(citation["detail"])}</p>' if citation["detail"] else ''
+        entries.append(f'<li><article class="source-card"><h4>{link(citation["title"] or f"Quelle {source_id}", source_route)}</h4>'
+                       f'{page}{detail}{scan}</article></li>')
+    return '<ul class="source-cards">' + ''.join(entries) + '</ul>'
 
 
 def citation_marker(route, label):
@@ -555,8 +594,8 @@ def event_page(connection, fact_id, media_root=None):
 <p>Betroffene Person oder Familie: {event_owner(connection, fact)}</p></section>
 <section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>{map_section}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "fact", str(fact_id)) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
-<section class="panel" id="sources"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(citations)}
-<h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt.</p>'}</section></div>'''
+<section class="panel" id="sources"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(connection, citations, media_root)}
+<h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt. Das ist unabhängig von formalen Quellenverweisen.</p>'}</section></div>'''
     return layout(fact["kind"], content)
 
 

@@ -136,7 +136,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Verfügbare Personenbilder als Profilbild und kleine Vorschau bei Eltern, Kindern, Geschwistern und Partnern; Quellen in Übersichten nur als Büroklammer-Link, ausgeschriebene Angaben auf der Ereignis- bzw. Quellenseite
 - Eigene Ereignisseiten und eine durchsuchbare Ereignisliste; Ortsangaben kürzen Bundesländer und Länder ab (z. B. NI, DE). Karten erscheinen als eingebettete Kachel auf der Ereignisseite, werden nur nach Klick geladen und übermitteln dann den vollständigen Ereignisort an Google Maps.
 - Kompakter Familienbaum mit wählbarer Tiefe (2–5), nach Generationen geordneten Vorfahren und Nachkommen sowie aufklappbaren, semantisch verschachtelten Familienlinien; dazu kürzester Verbindungsweg zwischen zwei Personen
-- Lebensereignisse mit vorhandenen GEDCOM-Quellenverweisen und Seitenangaben
+- Ereignisdetails mit GEDCOM-Quellenverweis, Belegstelle und getrenntem Scanstatus. Ein einzelner Scan der Quelle wird verlinkt; bei mehreren Dateien ohne passende Seitenzuordnung wird keine ereignisspezifische Datei behauptet.
 - Import und Anzeige von GEDCOM-Notizen, Repositorien, weiteren Beziehungen sowie zusätzlichen Ereignistypen wie Einwanderung und Adoption
 - Verlobung und weitere Familienereignisse auf den beteiligten Personenseiten
 - Verknüpfte Bilder und Dokumente aus GEDCOM-Medienobjekten
@@ -144,7 +144,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Reduziertes Archivdesign mit klaren Datenbereichen, sichtbaren Tastaturfokussen und responsiver Darstellung ohne seitliches Scrollen
 - Dauerhafte Startperson per privater Serveroption
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
-- Deutliche Kennzeichnung fehlender Belege und offener Original-Zuordnungen
+- Getrennte Kennzeichnung fehlender formaler Quellenverweise, angehängter Medien und offener Original-Zuordnungen
 - Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen
 
 Noch nicht enthalten: Bearbeitung und GEDCOM-Export. Die Baumansicht zeigt

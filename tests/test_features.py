@@ -237,6 +237,10 @@ class FeatureTest(unittest.TestCase):
                 event = event_page(connection, 1)
                 self.assertIn("Fiktives Geburtsregister", event)
                 self.assertIn('id="sources"', event)
+                self.assertIn("GEDCOM-Belegstelle: Seite 3", event)
+                self.assertIn("Archivscan zur Belegseite öffnen", event)
+                self.assertIn("#page=3", event)
+                self.assertIn("Dateizuordnung geprüft", event)
                 event_list = events_page(connection, "", 1)
                 self.assertIn('href="/event/1#sources"', event_list)
                 self.assertNotIn("Fiktives Geburtsregister", event_list)
@@ -249,6 +253,29 @@ class FeatureTest(unittest.TestCase):
                 build(EXAMPLE, database_path, archive, links)
             with database(database_path) as connection:
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM source_archive_links").fetchone()[0], 1)
+
+    def test_event_does_not_guess_between_source_scans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "archive"
+            archive.mkdir()
+            for name in ("first.pdf", "second.pdf"):
+                (archive / name).write_bytes(b"synthetic PDF")
+            links = root / "links.json"
+            links.write_text(json.dumps({"sources": [
+                {"source_id": "S1", "path": "first.pdf", "status": "verified"},
+                {"source_id": "S1", "path": "second.pdf", "status": "verified"},
+            ]}))
+            database_path = root / "family.sqlite"
+            build(EXAMPLE, database_path, archive, links)
+            with database(database_path) as connection:
+                event = event_page(connection, 1)
+                self.assertIn("2 Archivdateien der Quelle zugeordnet", event)
+                self.assertNotIn("Archivscan öffnen", event)
+                self.assertIn("GEDCOM-Belegstelle: Seite 3", event)
+                uncited = event_page(connection, 2)
+                self.assertIn("Kein formaler GEDCOM-Quellenverweis", uncited)
+                self.assertIn("Keine Medien angehängt", uncited)
 
     def test_password_protects_pages_and_assets(self):
         with tempfile.TemporaryDirectory() as directory:
