@@ -341,14 +341,19 @@ def original_record_link_by_id(record_id):
     return link("Originaldaten ansehen", f'/export-record/{record_id}')
 
 
-def overview(connection, query, featured_person_id=None, media_root=None, place="", year="", evidence=""):
+def overview(connection, query, featured_person_id=None, media_root=None, place="", year="", evidence="",
+             event_kind="", sex="", media_filter=""):
     term = query.strip()[:100]
     place = place.strip()[:100]
     year = year.strip() if len(year.strip()) == 4 and year.strip().isdigit() else ""
     evidence = evidence if evidence in ("with", "without") else ""
+    event_types = [row[0] for row in connection.execute("SELECT DISTINCT kind FROM facts ORDER BY kind")]
+    event_kind = event_kind if event_kind in event_types else ""
+    sex = sex if sex in ("M", "F", "U") else ""
+    media_filter = media_filter if media_filter in ("with", "without") else ""
     conditions = ["(people.name LIKE ? COLLATE NOCASE OR people.surname LIKE ? COLLATE NOCASE)"]
     values = [f"%{term}%", f"%{term}%"]
-    if place or year:
+    if place or year or event_kind:
         fact_conditions = ["facts.owner_type='person'", "facts.owner_id=people.id"]
         if place:
             fact_conditions.append("facts.place LIKE ? COLLATE NOCASE")
@@ -356,14 +361,26 @@ def overview(connection, query, featured_person_id=None, media_root=None, place=
         if year:
             fact_conditions.append("facts.date_text LIKE ?")
             values.append(f"%{year}%")
+        if event_kind:
+            fact_conditions.append("facts.kind=?")
+            values.append(event_kind)
         conditions.append("EXISTS (SELECT 1 FROM facts WHERE " + " AND ".join(fact_conditions) + ")")
+    if sex:
+        conditions.append("people.sex=?")
+        values.append(sex)
     if evidence:
         source_exists = "EXISTS (SELECT 1 FROM facts JOIN citations ON citations.fact_id=facts.id WHERE facts.owner_type='person' AND facts.owner_id=people.id)"
         conditions.append(source_exists if evidence == "with" else "NOT " + source_exists)
-    filtered = bool(term or place or year or evidence)
+    if media_filter:
+        media_exists = "EXISTS (SELECT 1 FROM media_links WHERE media_links.owner_type='person' AND media_links.owner_id=people.id)"
+        conditions.append(media_exists if media_filter == "with" else "NOT " + media_exists)
+    filtered = bool(term or place or year or evidence or event_kind or sex or media_filter)
     people = connection.execute("SELECT people.* FROM people WHERE " + " AND ".join(conditions)
                                 + " ORDER BY people.name LIMIT ?", (*values, 100 if filtered else 50)).fetchall()
     count = connection.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+    result_count = connection.execute("SELECT COUNT(*) FROM people WHERE " + " AND ".join(conditions), values).fetchone()[0]
+    kind_options = ''.join(f'<option value="{escape(kind, quote=True)}"{" selected" if event_kind == kind else ""}>{escape(kind)}</option>'
+                           for kind in event_types)
     featured = connection.execute("SELECT * FROM people WHERE id=?", (featured_person_id,)).fetchone() if featured_person_id else None
     if not featured and not featured_person_id:
         featured = connection.execute("SELECT * FROM people WHERE is_start=1 ORDER BY id LIMIT 1").fetchone()
@@ -380,13 +397,18 @@ def overview(connection, query, featured_person_id=None, media_root=None, place=
 <div class="search-fields"><div class="form-field"><label for="name">Name</label><input id="name" name="q" type="search" value="{escape(term, quote=True)}" autocomplete="off"></div>
 <div class="form-field"><label for="place">Ort eines Lebensereignisses</label><input id="place" name="place" type="search" value="{escape(place, quote=True)}"></div>
 <div class="form-field"><label for="year">Jahr eines Lebensereignisses</label><input id="year" name="year" type="text" inputmode="numeric" pattern="[0-9]{{4}}" maxlength="4" value="{escape(year, quote=True)}"></div>
+<div class="form-field"><label for="kind">Ereignisart</label><select id="kind" name="kind"><option value="">Alle</option>{kind_options}</select></div>
+<div class="form-field"><label for="sex">Geschlecht laut GEDCOM</label><select id="sex" name="sex"><option value="">Alle</option>
+<option value="F"{' selected' if sex == 'F' else ''}>weiblich</option><option value="M"{' selected' if sex == 'M' else ''}>männlich</option><option value="U"{' selected' if sex == 'U' else ''}>unbekannt</option></select></div>
 <div class="form-field"><label for="evidence">Quellenverweis</label><select id="evidence" name="evidence">
 <option value="">Alle</option><option value="with"{' selected' if evidence == 'with' else ''}>Mit Quellenverweis</option>
-<option value="without"{' selected' if evidence == 'without' else ''}>Ohne Quellenverweis</option></select></div></div>
-<p class="muted">Ort und Jahr müssen im selben Lebensereignis vorkommen. Ein Quellenverweis bedeutet keine historische Prüfung.</p>
+<option value="without"{' selected' if evidence == 'without' else ''}>Ohne Quellenverweis</option></select></div>
+<div class="form-field"><label for="media">Direkt zugeordnete Medien</label><select id="media" name="media"><option value="">Alle</option>
+<option value="with"{' selected' if media_filter == 'with' else ''}>Mit Medien</option><option value="without"{' selected' if media_filter == 'without' else ''}>Ohne Medien</option></select></div></div>
+<p class="muted">Ort, Jahr und Ereignisart müssen im selben Lebensereignis vorkommen. Ein Quellenverweis bedeutet keine historische Prüfung.</p>
 <button type="submit">Suchen</button></form>
 <section class="panel" aria-labelledby="results"><h2 id="results">{'Suchergebnisse' if filtered else 'Personenverzeichnis'}</h2>
-<p class="muted">{len(people)} Treffer angezeigt{' · maximal 100' if filtered else ' · für alle Personen die Suche verwenden'}.</p>
+<p class="muted">{len(people)} von {result_count} Treffern angezeigt{' · maximal 100' if filtered else ' · für weitere Personen die Suche verwenden'}.</p>
 {list_items([person_link(person) for person in people])}</section>'''
     return layout("Personen", content)
 
@@ -693,6 +715,7 @@ def person_page(connection, person_id, media_root=None):
 <section class="panel" id="details"><h2>Weitere Angaben</h2>{additional_fields}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
 <p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
+<p>{link('Zeitleiste ansehen →', '/timeline/' + quote(person_id))}</p>
 <p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p>
 {f'<h3>Paten und weitere Beziehungen</h3>{association_links}' if association_links else ''}</section>'''
     content += f'</div>{relation_rail("Kinder", children, "children", "desktop-children")}</div>'
@@ -987,6 +1010,56 @@ def exact_gedcom_day(value):
     except ValueError:
         return None
     return month, day
+
+
+def chronology_key(value):
+    match = re.fullmatch(r"(?:(\d{1,2}) )?(?:(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) )?(\d{1,4})", value or "")
+    if not match:
+        return None
+    day = int(match.group(1)) if match.group(1) else 0
+    month = GEDCOM_MONTHS[match.group(2)][0] if match.group(2) else 0
+    year = int(match.group(3))
+    if not year or (day and not month):
+        return None
+    if day and exact_gedcom_day(value) is None:
+        return None
+    return year, month, day
+
+
+def timeline_page(connection, person_id):
+    person = connection.execute("SELECT * FROM people WHERE id=?", (person_id,)).fetchone()
+    if not person:
+        return None
+    facts = connection.execute(
+        "SELECT facts.*, (SELECT COUNT(*) FROM citations WHERE citations.fact_id=facts.id) AS citation_count "
+        "FROM facts WHERE (owner_type='person' AND owner_id=?) OR "
+        "(owner_type='family' AND owner_id IN (SELECT id FROM families WHERE husband_id=? OR wife_id=?))",
+        (person_id, person_id, person_id),
+    ).fetchall()
+    dated = []
+    uncertain = []
+    for fact in facts:
+        key = chronology_key(fact["date_text"])
+        (dated if key else uncertain).append((key, fact))
+    dated.sort(key=lambda entry: (entry[0], entry[1]["id"]))
+    uncertain.sort(key=lambda entry: entry[1]["id"])
+
+    def entry_html(fact):
+        date_label = escape(fact["date_text"] or "ohne Datum")
+        place_label = f' · {escape(format_place(fact["place"]))}' if fact["place"] else ''
+        source = citation_marker(f'/event/{fact["id"]}#sources',
+                                 f'{fact["citation_count"]} Quelle(n) zu {fact["kind"]} anzeigen') if fact["citation_count"] else ''
+        family_label = ' · Familienereignis' if fact["owner_type"] == "family" else ''
+        return (f'{event_icon(fact["kind"])}{link(fact["kind"], "/event/" + str(fact["id"]))}'
+                f' · {date_label}{place_label}{family_label} {source}')
+
+    content = f'''<p class="back">{link('← Zum Personenprofil', '/person/' + quote(person_id))}</p>
+<h1>Zeitleiste: {escape(person['name'])}</h1>
+<p>Eigene und gemeinsame Familienereignisse. Nur eindeutige GEDCOM-Jahre stehen in zeitlicher Reihenfolge; innerhalb eines Jahres können ungenaue Monats- oder Tagesangaben nicht exakt eingeordnet werden.</p>
+<section class="panel"><h2>Chronologisch datiert</h2>{list_items([entry_html(fact) for _, fact in dated])}</section>
+<section class="panel"><h2>Ohne eindeutiges Jahr</h2><p>Hier stehen auch ungefähre und Zeitspannen-Daten; ihre ursprüngliche Schreibweise bleibt sichtbar.</p>
+{list_items([entry_html(fact) for _, fact in uncertain])}</section>'''
+    return layout("Zeitleiste", content)
 
 
 def reports_page(connection):
@@ -1290,7 +1363,8 @@ class Handler(BaseHTTPRequestHandler):
                 if route == "/":
                     body = overview(connection, parameters.get("q", [""])[0], self.featured_person_id, self.media_root,
                                     parameters.get("place", [""])[0], parameters.get("year", [""])[0],
-                                    parameters.get("evidence", [""])[0])
+                                    parameters.get("evidence", [""])[0], parameters.get("kind", [""])[0],
+                                    parameters.get("sex", [""])[0], parameters.get("media", [""])[0])
                 elif route == "/sources":
                     body = sources_page(connection, parameters.get("q", [""])[0])
                 elif route == "/reports":
@@ -1335,6 +1409,8 @@ class Handler(BaseHTTPRequestHandler):
                     body = archive_page(connection, parameters.get("q", [""])[0], page)
                 elif re.fullmatch(r"/person/[A-Za-z0-9_-]+", route):
                     body = person_page(connection, route.rsplit("/", 1)[1], self.media_root)
+                elif re.fullmatch(r"/timeline/[A-Za-z0-9_-]+", route):
+                    body = timeline_page(connection, route.rsplit("/", 1)[1])
                 elif re.fullmatch(r"/family/[A-Za-z0-9_-]+", route):
                     body = family_page(connection, route.rsplit("/", 1)[1], self.media_root)
                 elif re.fullmatch(r"/export-record/[0-9]+", route):

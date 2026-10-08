@@ -131,7 +131,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 
 ## Aktueller Umfang
 
-- Personensuche nach Name, Ereignisort, Ereignisjahr und vorhandenem oder fehlendem GEDCOM-Quellenverweis
+- Kombinierbare Personensuche nach Name, Ereignisort, Ereignisjahr, Ereignisart, Geschlecht, direkt zugeordneten Medien und vorhandenem oder fehlendem GEDCOM-Quellenverweis
 - Personenseiten mit seitlichen Eltern- und Kinderkacheln, Partner direkt neben dem Namen und Geschwistern in eigenen, anklickbaren Kacheln; auf schmalen Bildschirmen ohne seitliches Scrollen gestapelt
 - Verfügbare Personenbilder als Profilbild und kleine Vorschau bei Eltern, Kindern, Geschwistern und Partnern; Quellen in Übersichten nur als Büroklammer-Link, ausgeschriebene Angaben auf der Ereignis- bzw. Quellenseite
 - Eigene Ereignisseiten und eine durchsuchbare Ereignisliste; Ortsangaben kürzen Bundesländer und Länder ab (z. B. NI, DE). Ereigniskoordinaten aus `PLAC/MAP/LATI/LONG` werden importiert und für die eingebettete Karte verwendet; ohne Koordinaten bleibt die Ortssuche. Google Maps lädt erst nach Klick.
@@ -151,6 +151,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen
 - Barrierearm lesbare Berichte: Bestandsstatistik mit Ereignis- und Nachnamensverteilung, monatliche Jahrestage nur aus exakten GEDCOM-Daten sowie ein durchsuchbares Familienverzeichnis
 - Eigene Familienansichten mit Partnern, Kindern, Familienereignissen, Medien, Notizen und direkten Quellenverweisen; von den Personenprofilen aus erreichbar
+- Personen-Zeitleisten mit eigenen und gemeinsamen Familienereignissen; ungefähre Daten und Zeitspannen bleiben getrennt von eindeutig datierten Ereignissen
 
 Noch nicht enthalten: Bearbeitung und GEDCOM-Export. Die Baumansicht zeigt
 jeweils bis zu fünf Generationen um eine Ausgangsperson, keinen vollständigen

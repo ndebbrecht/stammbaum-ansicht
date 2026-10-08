@@ -31,6 +31,7 @@ class SyntheticImportTest(unittest.TestCase):
     def test_family_events_and_linked_media(self):
         gedcom = """0 @I1@ INDI
 1 NAME Ada /Beispiel/
+1 SEX F
 1 OBJE @M1@
 1 EDUC
 2 DATE 2 JAN 2000
@@ -78,6 +79,9 @@ class SyntheticImportTest(unittest.TestCase):
                 self.assertIn("Startperson", home)
                 self.assertIn('href="/person/I1"', home)
                 self.assertIn('src="/media/M1"', home)
+                self.assertIn('href="/person/I1"', overview(connection, "", sex="F", media_filter="with"))
+                self.assertNotIn('href="/person/I2"', overview(connection, "", sex="F", media_filter="with"))
+                self.assertNotIn('href="/person/I1"', overview(connection, "", media_filter="without"))
             finally:
                 connection.close()
 
@@ -130,6 +134,9 @@ class SyntheticImportTest(unittest.TestCase):
                 self.assertNotIn('href="/person/I2"', overview(connection, "", place="Musterstadt", year="1880"))
                 self.assertIn('href="/person/I1"', overview(connection, "", evidence="with"))
                 self.assertNotIn('href="/person/I2"', overview(connection, "", evidence="with"))
+                self.assertNotIn('href="/person/I1"', overview(connection, "", place="Anderstadt", event_kind="Geburt"))
+                self.assertIn('href="/person/I2"', overview(connection, "", place="Anderstadt", event_kind="Geburt"))
+                self.assertIn('href="/person/I1"', overview(connection, "", place="Anderstadt", event_kind="Einwanderung"))
             finally:
                 connection.close()
 

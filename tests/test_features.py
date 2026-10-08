@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from app import Handler, anniversaries_page, archive_file_page, archive_page, connection_path, database, event_page, events_page, exact_gedcom_day, export_page, export_record_page, families_page, family_graph, family_page, format_place, media_page, overview, person_page, place_page, places_page, reports_page, source_page, statistics_page, tree_page
+from app import Handler, anniversaries_page, archive_file_page, archive_page, chronology_key, connection_path, database, event_page, events_page, exact_gedcom_day, export_page, export_record_page, families_page, family_graph, family_page, format_place, media_page, overview, person_page, place_page, places_page, reports_page, source_page, statistics_page, timeline_page, tree_page
 from auth import hash_password, verify_password
 from export_archive_index import export
 from import_data import build
@@ -60,8 +60,14 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn('href="/person/I2"', family)
                 self.assertIn('href="/event/4"', family)
                 self.assertIn('href="/family/F1"', person_page(connection, "I1"))
+                timeline = timeline_page(connection, "I1")
+                self.assertIn('href="/timeline/I1"', person_page(connection, "I1"))
+                self.assertLess(timeline.index('href="/event/1"'), timeline.index('href="/event/4"'))
+                self.assertLess(timeline.index("Ohne eindeutiges Jahr"), timeline.index('href="/event/2"'))
         self.assertIsNone(exact_gedcom_day("29 FEB 1900"))
         self.assertIsNone(exact_gedcom_day("BET 1 JAN 1900 AND 2 JAN 1900"))
+        self.assertEqual(chronology_key("MAY 1882"), (1882, 5, 0))
+        self.assertIsNone(chronology_key("ABT 3 MAY 1950"))
 
     def test_event_source_and_external_media_details(self):
         gedcom = """0 @I1@ INDI
