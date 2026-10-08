@@ -48,8 +48,44 @@ GEDCOM_LABELS = {
     "NOTE": "Notiz", "SOUR": "Quelle", "PAGE": "Belegstelle", "OBJE": "Medium",
     "FILE": "Datei", "TITL": "Titel", "AUTH": "Urheber", "PUBL": "Veröffentlichung",
     "REPO": "Archiv", "_ALT": "Alternativer Name", "_GEO": "Geografische Kennung",
-    "LABL": "Kennzeichnung", "_STP": "Startperson",
+    "LABL": "Kennzeichnung", "_STP": "Startperson", "_FID": "Dateikennung",
+    "ADDR": "Adresse", "WWW": "Website", "EYES": "Augenfarbe", "HAIR": "Haarfarbe",
+    "HEIG": "Körpergröße", "COLO": "Hautfarbe",
 }
+ICON_PATHS = {
+    "event": '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+    "birth": '<path d="M12 3v18M3 12h18M6 6l12 12M18 6 6 18"/><circle cx="12" cy="12" r="3"/>',
+    "memorial": '<path d="M12 3c2 3 3 4 3 6a3 3 0 0 1-6 0c0-2 1-3 3-6ZM8 15h8v6H8zM6 21h12"/>',
+    "rings": '<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/>',
+    "book": '<path d="M12 6c-2-2-5-2-9-2v15c4 0 7 0 9 2 2-2 5-2 9-2V4c-4 0-7 0-9 2Zm0 0v15"/>',
+    "briefcase": '<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',
+    "place": '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+    "journey": '<path d="M4 7h15m-4-4 4 4-4 4M20 17H5m4-4-4 4 4 4"/>',
+    "document": '<path d="M6 2h8l5 5v15H6zM14 2v5h5M9 12h7M9 16h7"/>',
+    "person": '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',
+    "family": '<circle cx="8" cy="8" r="3"/><circle cx="17" cy="8" r="3"/><path d="M2 20c0-4 2-7 6-7s6 3 6 7m0 0c0-4 1-7 3-7 4 0 5 3 5 7"/>',
+    "cross": '<path d="M12 3v18M5 10h14"/>',
+    "paperclip": '<path d="m8 12 6-6a4 4 0 0 1 6 6l-8 8a6 6 0 0 1-9-9l8-8"/>',
+}
+EVENT_ICONS = {
+    "Geburt": "birth", "Tod": "memorial", "Bestattung": "memorial", "Trauerfeier": "memorial",
+    "Heirat": "rings", "Verlobung": "rings", "Aufgebot": "rings", "Kirchliche Trauung": "rings",
+    "Hochzeitsfeier": "rings", "Scheidung": "document", "Taufe": "cross", "Konfirmation": "cross",
+    "Erstkommunion": "cross", "Letzte Ölung": "cross", "Ordination": "cross",
+    "Ausbildung": "book", "Abschluss": "book", "Beruf": "briefcase",
+    "Wohnort": "place", "Einwanderung": "journey", "Auswanderung": "journey",
+    "Adoption": "family", "Volkszählung": "family",
+}
+
+
+def icon(name):
+    return (f'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
+            f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+            f'{ICON_PATHS[name]}</svg>')
+
+
+def event_icon(kind):
+    return icon(EVENT_ICONS.get(kind, "event"))
 
 
 def link(label, route):
@@ -99,7 +135,7 @@ def original_record_link(connection, xref):
     return link("Originaldaten ansehen", f'/export-record/{record["id"]}') if record else ""
 
 
-def export_tree(connection, record_id, excluded_tags=None):
+def export_tree(connection, record_id, excluded_tags=None, included_tags=None, show_tags=True):
     nodes = connection.execute("SELECT id, parent_id, tag, value FROM export_nodes WHERE record_id=? ORDER BY id",
                                (record_id,)).fetchall()
     children = {}
@@ -122,10 +158,15 @@ def export_tree(connection, record_id, excluded_tags=None):
     def render(parent_id):
         entries = []
         for node in children.get(parent_id, []):
-            if parent_id is None and excluded_tags and node["tag"] in excluded_tags:
-                continue
+            if parent_id is None:
+                if excluded_tags and node["tag"] in excluded_tags:
+                    continue
+                if included_tags is not None and node["tag"] not in included_tags:
+                    continue
             label = GEDCOM_LABELS.get(node["tag"], node["tag"])
-            description = f'{escape(label)} <code>({escape(node["tag"])})</code>'
+            description = escape(label)
+            if show_tags or node["tag"] not in GEDCOM_LABELS:
+                description += f' <code>({escape(node["tag"])})</code>'
             if node["value"]:
                 description += f': {value_html(node["value"])}'
             nested = render(node["id"])
@@ -133,6 +174,29 @@ def export_tree(connection, record_id, excluded_tags=None):
         return '<ul class="record-tree">' + ''.join(entries) + '</ul>' if entries else ''
 
     return render(None)
+
+
+def person_additional_html(connection, record_id):
+    excluded = set(FACT_NAMES) | {"FAMS", "FAMC", "OBJE", "NOTE", "ASSO", "SOUR", "CHAN", "_CRE", "LABL"}
+    available = {row[0] for row in connection.execute(
+        "SELECT DISTINCT tag FROM export_nodes WHERE record_id=? AND parent_id IS NULL", (record_id,)
+    )} - excluded
+    groups = [
+        ("Namen und Kennungen", "person", {"NAME", "SEX", "_FID", "_STP"}),
+        ("Kontakt", "document", {"EMAIL", "PHON", "ADDR", "WWW"}),
+        ("Lebensumfeld", "family", {"RELI", "EYES", "HAIR", "HEIG", "COLO"}),
+    ]
+    cards = []
+    for title, symbol, tags in groups:
+        present = available & tags
+        if present:
+            cards.append(f'<section class="detail-card"><h3>{icon(symbol)}{title}</h3>'
+                         f'{export_tree(connection, record_id, included_tags=present, show_tags=False)}</section>')
+            available -= present
+    if available:
+        cards.append(f'<section class="detail-card"><h3>{icon("document")}Weitere Exportfelder</h3>'
+                     f'{export_tree(connection, record_id, included_tags=available, show_tags=False)}</section>')
+    return '<div class="detail-grid">' + ''.join(cards) + '</div>' if cards else '<p>Keine weiteren Angaben.</p>'
 
 
 def export_page(connection, query, tag, page):
@@ -191,7 +255,7 @@ def places_page(connection, query, page):
     count = connection.execute("SELECT COUNT(*) FROM places WHERE name LIKE ? OR alternate_names LIKE ?", (pattern, pattern)).fetchone()[0]
     rows = connection.execute("SELECT record_id, name, latitude FROM places WHERE name LIKE ? OR alternate_names LIKE ? "
                               "ORDER BY name, record_id LIMIT 50 OFFSET ?", (pattern, pattern, (page - 1) * 50)).fetchall()
-    entries = [link(row["name"], f'/place/{row["record_id"]}') + (" · Koordinaten vorhanden" if row["latitude"] is not None else "")
+    entries = [icon("place") + link(row["name"], f'/place/{row["record_id"]}') + (" · Koordinaten vorhanden" if row["latitude"] is not None else "")
                for row in rows]
     previous = link("← Vorherige", f'/places?q={quote(term)}&page={page - 1}') if page > 1 else ""
     following = link("Nächste →", f'/places?q={quote(term)}&page={page + 1}') if page * 50 < count else ""
@@ -215,7 +279,7 @@ def place_page(connection, record_id):
     if place["latitude"] is not None:
         metadata += f'<dt>GEDCOM-Koordinaten</dt><dd>{place["latitude"]:.6f}, {place["longitude"]:.6f}</dd>'
     event_links = [link(fact["kind"], f'/event/{fact["id"]}') + ' · ' + event_owner(connection, fact) for fact in facts]
-    content = f'''<p class="back">{link('← Zu den Orten', '/places')}</p><h1>{escape(format_place(place['name']))}</h1>
+    content = f'''<p class="back">{link('← Zu den Orten', '/places')}</p><h1 class="title-icon">{icon("place")}{escape(format_place(place['name']))}</h1>
 <p>{original_record_link_by_id(record_id)} · {count} verknüpfte Ereignisse.</p>
 <section class="panel"><h2>Ortsangaben</h2><dl>{metadata or '<dt>Weitere Angaben</dt><dd>Keine im Export.</dd>'}</dl></section>
 <section class="panel"><h2>Ereignisse an diesem Ort</h2>{list_items(event_links)}
@@ -293,7 +357,7 @@ def media_for(connection, owner_type, owner_id, media_root=None):
                 entries.append(f'<figure class="media-card"><a href="{route}"><img src="{route}" alt="{escape(item["title"], quote=True)}" loading="lazy"></a>'
                                f'<figcaption>{escape(item["title"])}</figcaption></figure>')
             else:
-                entries.append(f'<div class="media-card document">{link("Dokument öffnen: " + item["title"], route)}</div>')
+                entries.append(f'<div class="media-card document">{icon("document")}{link("Dokument öffnen: " + item["title"], route)}</div>')
         else:
             entries.append(f'<p class="muted">{escape(item["title"])} · Datei im Export nicht verfügbar</p>')
     return '<div class="media-grid">' + "".join(entries) + '</div>' if entries else ""
@@ -389,7 +453,7 @@ def citations_html(connection, citations, media_root=None):
 
 def citation_marker(route, label):
     return (f'<a class="citation-clip" href="{escape(route, quote=True)}">'
-            f'<span aria-hidden="true">📎</span><span class="sr-only">{escape(label)}</span></a>')
+            f'{icon("paperclip")}<span class="sr-only">{escape(label)}</span></a>')
 
 
 def notes_html(connection, owner_type, owner_id):
@@ -411,12 +475,14 @@ def facts_html(connection, owner_type, owner_id, media_root=None):
     entries = []
     for fact in facts:
         citations = citations_for(connection, "fact", str(fact["id"]))
-        details = ", ".join(escape(value) for value in (fact["date_text"], format_place(fact["place"] or ""), fact["value"]) if value)
+        fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")), ("Angabe", fact["value"])]
+        details = ''.join(f'<div><dt>{label}</dt><dd>{escape(value)}</dd></div>' for label, value in fields if value)
+        details = f'<dl class="fact-meta">{details}</dl>' if details else '<p>Ohne weitere Angabe</p>'
         media = media_for(connection, "fact", str(fact["id"]), media_root)
         notes = notes_html(connection, "fact", str(fact["id"]))
         source_link = citation_marker(f'/event/{fact["id"]}#sources',
                                       f'{len(citations)} Quelle(n) zu {fact["kind"]} anzeigen') if citations else ''
-        entries.append(f'<li><article class="fact-card"><h3>{link(fact["kind"], "/event/" + str(fact["id"]))}{source_link}</h3><p>{details or "Ohne weitere Angabe"}</p>'
+        entries.append(f'<li><article class="fact-card"><h3>{event_icon(fact["kind"])}{link(fact["kind"], "/event/" + str(fact["id"]))}{source_link}</h3>{details}'
                        f'{notes}{media}</article></li>')
     return '<ol class="facts">' + "".join(entries) + "</ol>"
 
@@ -429,8 +495,7 @@ def person_page(connection, person_id, media_root=None):
                                 "WHERE person_labels.person_id=? ORDER BY labels.title", (person_id,)).fetchall()
     label_html = f'<p>Kennzeichnungen: {escape(", ".join(item["title"] for item in labels))}</p>' if labels else ''
     record = connection.execute("SELECT id FROM export_records WHERE tag='INDI' AND xref=?", (person_id,)).fetchone()
-    excluded = set(FACT_NAMES) | {"FAMS", "FAMC", "OBJE", "NOTE", "ASSO", "SOUR", "CHAN", "_CRE", "LABL"}
-    additional_fields = export_tree(connection, record["id"], excluded) if record else ""
+    additional_fields = person_additional_html(connection, record["id"]) if record else '<p>Keine weiteren Angaben.</p>'
     parent_families = connection.execute(
         "SELECT families.* FROM families JOIN children ON children.family_id=families.id WHERE children.person_id=?",
         (person_id,),
@@ -523,7 +588,7 @@ def person_page(connection, person_id, media_root=None):
 <h3>Dokumente zu Lebensereignissen</h3>{fact_media or '<p>Keine weiteren Dokumente zu Lebensereignissen.</p>'}</section>
 {f'<section class="panel"><h2>Medien zu Familien</h2>{"".join(family_media)}</section>' if family_media else ''}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "person", person_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
-<section class="panel" id="details"><h2>Weitere Angaben aus dem Export</h2>{additional_fields or '<p>Keine weiteren Angaben.</p>'}</section>
+<section class="panel" id="details"><h2>Weitere Angaben aus dem Export</h2>{additional_fields}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
 <p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
 <p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p></section>'''
@@ -752,7 +817,7 @@ def event_page(connection, fact_id, media_root=None):
                    f'<div class="map-container"></div>'
                    f'</section><script src="/static/map.js" defer></script>') if map_query else ""
     content = f'''<div class="event-detail"><p class="back">{link('← Zu den Ereignissen', '/events')}</p>
-<section class="person-hero"><p class="eyebrow">Ereignis</p><h1>{escape(fact['kind'])}</h1>
+<section class="person-hero"><p class="eyebrow">Ereignis</p><h1 class="title-icon">{event_icon(fact['kind'])}{escape(fact['kind'])}</h1>
 <p>Betroffene Person oder Familie: {event_owner(connection, fact)} · {original_record_link(connection, fact["owner_id"])}</p></section>
 <section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>{map_section}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "fact", str(fact_id)) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
@@ -772,7 +837,7 @@ def events_page(connection, query, page):
         f"SELECT facts.*, (SELECT COUNT(*) FROM citations WHERE fact_id=facts.id) AS citation_count "
         f"FROM facts {filter_sql} ORDER BY id DESC LIMIT 50 OFFSET ?", (*values, (page - 1) * 50)
     ).fetchall()
-    entries = [f'{link(fact["kind"], "/event/" + str(fact["id"]))} · '
+    entries = [f'{event_icon(fact["kind"])}{link(fact["kind"], "/event/" + str(fact["id"]))} · '
                f'{escape(fact["date_text"] or "ohne Datum")} · {event_owner(connection, fact)} '
                + (citation_marker(f'/event/{fact["id"]}#sources', f'{fact["citation_count"]} Quelle(n) zu {fact["kind"]} anzeigen')
                   if fact["citation_count"] else '') for fact in facts]
@@ -828,7 +893,7 @@ def source_page(connection, source_id, media_root=None):
     repository_items = [escape(item["name"] or "Unbekanntes Archiv")
                         + (" · Signatur: " + escape(item["call_number"]) if item["call_number"] else "")
                         + (" · " + escape(item["address"]) if item["address"] else "") for item in repositories]
-    content = f'''<p class="back">{link('← Zu den Quellen', '/sources')}</p><h1>{escape(source['title'])}</h1>
+    content = f'''<p class="back">{link('← Zu den Quellen', '/sources')}</p><h1 class="title-icon">{icon("document")}{escape(source['title'])}</h1>
 <p class="muted">GEDCOM-ID: {escape(source_id)} · Archivzuordnungen und ihr Prüfstatus stehen unten. {original_record_link(connection, source_id)}</p>
 <section class="panel"><h2>Quellenangaben</h2><dl>{metadata or '<dt>Metadaten</dt><dd>Keine weiteren Angaben im GEDCOM.</dd>'}</dl></section>
 <section class="panel"><h2>Archiv oder Repositorium</h2>{list_items(repository_items)}</section>

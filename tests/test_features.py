@@ -84,6 +84,38 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn("Letzte Ölung", profile)
                 self.assertIn("Koordinaten aus dem GEDCOM", event_page(connection, 1))
 
+    def test_export_details_and_event_icons_keep_readable_labels(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Ada /Beispiel/
+1 EMAIL ada@example.invalid
+1 RELI Beispielglaube
+1 _UNSUPPORTED Beispielwert
+1 BIRT
+2 DATE 1 JAN 1900
+2 PLAC Musterstadt
+0 _PLAC Musterstadt
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                profile = person_page(connection, "I1")
+                self.assertIn('class="detail-grid"', profile)
+                for label in ("Namen und Kennungen", "Kontakt", "Lebensumfeld", "Weitere Exportfelder",
+                              "ada@example.invalid", "Beispielglaube", "Beispielwert", "Geburt", "Datum", "Ort"):
+                    self.assertIn(label, profile)
+                self.assertNotIn("(NAME)", profile)
+                self.assertIn("(_UNSUPPORTED)", profile)
+                self.assertIn('aria-hidden="true" focusable="false"', profile)
+                event = event_page(connection, 1)
+                self.assertIn('class="title-icon"', event)
+                self.assertIn("Geburt", event)
+                self.assertIn('href="/place/2"', event)
+                self.assertIn('class="title-icon"', place_page(connection, 2))
+
     def test_exported_start_person_and_coordinates(self):
         gedcom = """0 @I1@ INDI
 1 NAME Ada /Beispiel/
