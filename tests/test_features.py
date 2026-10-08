@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from app import Handler, anniversaries_page, archive_file_page, archive_page, chronology_key, connection_path, database, event_page, events_page, exact_gedcom_day, export_page, export_record_page, families_page, family_graph, family_page, format_place, media_page, overview, person_page, place_page, places_page, reports_page, source_page, statistics_page, timeline_page, tree_page
+from app import Handler, anniversaries_page, archive_file_page, archive_page, chronology_key, connection_path, database, event_page, events_page, exact_gedcom_day, export_page, export_record_page, families_page, family_graph, family_page, format_place, media_library_page, media_page, overview, person_page, place_page, places_page, reports_page, source_page, statistics_page, timeline_page, tree_page
 from auth import hash_password, verify_password
 from export_archive_index import export
 from import_data import build
@@ -119,6 +119,9 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn("Externes Medium öffnen", medium)
                 self.assertIn("1901", medium)
                 self.assertIn("Mediennotiz", medium)
+                self.assertIn('href="/person/I1"', medium)
+                self.assertIn('href="/media-info/M1"', media_library_page(connection, "Externes", 1, root))
+                self.assertNotIn('href="/media-info/M2"', media_library_page(connection, "Externes", 1, root))
                 self.assertIn('href="/media-info/M1"', export_record_page(connection, 3))
                 self.assertNotIn('href="javascript:', media_page(connection, "M2", root))
                 source = source_page(connection, "S1", root)
@@ -486,6 +489,15 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn('Familienlinien als verschachtelte Liste', long)
                 self.assertLess(long.index('aria-label="Großeltern, Generation 3"'),
                                 long.index('aria-label="Eltern, Generation 2"'))
+                ancestors = tree_page(connection, "I3", 8, "ancestors")
+                self.assertIn('href="/person/I1"', ancestors)
+                self.assertNotIn('href="/person/I4"', ancestors)
+                self.assertNotIn('id="descendants-title"', ancestors)
+                self.assertIn('<option value="8" selected>', ancestors)
+                descendants = tree_page(connection, "I3", 8, "descendants")
+                self.assertIn('href="/person/I5"', descendants)
+                self.assertNotIn('href="/person/I2"', descendants)
+                self.assertNotIn('id="ancestors-title"', descendants)
                 self.assertLess(long.index('id="focus-title"'),
                                 long.index('aria-label="Kinder, Generation 2"'))
                 self.assertIn('aria-label="Eltern von Clara Beispiel"', long)

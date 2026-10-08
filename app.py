@@ -152,7 +152,7 @@ def layout(title, content):
 <title>{escape(title)} · Stammbaum</title><meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/static/style.css"></head>
 <body><a class="skip" href="#inhalt">Zum Inhalt springen</a>
 <header class="site-header"><div class="shell header-inner"><a class="brand" href="/">Stammbaum</a><nav aria-label="Hauptnavigation">
-<a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/places">Orte</a><a href="/sources">Quellen</a><a href="/reports">Berichte</a><a href="/archive">Archiv</a><a href="/export">Exportdaten</a></nav></div></header>
+<a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/places">Orte</a><a href="/sources">Quellen</a><a href="/media-library">Medien</a><a href="/reports">Berichte</a><a href="/archive">Archiv</a><a href="/export">Exportdaten</a></nav></div></header>
 <main id="inhalt" class="shell" tabindex="-1">{content}</main>
 <footer class="shell">Private Leseansicht · Angaben aus dem GEDCOM sind nicht automatisch geprüft. · Darstellung folgt dem Hell-/Dunkelmodus des Geräts.</footer></body></html>'''
 
@@ -464,10 +464,55 @@ def media_page(connection, media_id, media_root=None):
                   'Externes Medium öffnen</a>. Der Aufruf führt zu einer externen Website.</p>')
     else:
         access = '<p>Keine nutzbare Datei oder Webadresse im Import verfügbar.</p>'
-    content = f'''<p class="back">{link('← Zur Startseite', '/')}</p><h1 class="title-icon">{icon("document")}{escape(item['title'])}</h1>
-<p>{original}</p><section class="panel"><h2>Medium</h2><dl>{metadata}</dl>{access}</section>
+    preview = (f'<figure class="media-card"><img src="/media/{quote(media_id)}" alt="{escape(item["title"], quote=True)}">'
+               f'<figcaption>{escape(item["title"])}</figcaption></figure>') if available and (item["mime_type"] or "").startswith("image/") else ""
+    owner_links = []
+    for owner in connection.execute("SELECT owner_type, owner_id FROM media_links WHERE media_id=?", (media_id,)):
+        owner_type, owner_id = owner["owner_type"], owner["owner_id"]
+        if owner_type == "person":
+            person = connection.execute("SELECT * FROM people WHERE id=?", (owner_id,)).fetchone()
+            if person:
+                owner_links.append("Person: " + person_link(person))
+        elif owner_type == "family":
+            owner_links.append("Familie: " + link("Familienansicht", "/family/" + quote(owner_id)))
+        elif owner_type == "fact":
+            fact = connection.execute("SELECT kind FROM facts WHERE id=?", (owner_id,)).fetchone()
+            if fact:
+                owner_links.append("Ereignis: " + link(fact["kind"], "/event/" + quote(owner_id)))
+        elif owner_type == "source":
+            source = connection.execute("SELECT title FROM sources WHERE id=?", (owner_id,)).fetchone()
+            if source:
+                owner_links.append("Quelle: " + link(source["title"], "/source/" + quote(owner_id)))
+    content = f'''<p class="back">{link('← Zum Medienverzeichnis', '/media-library')}</p><h1 class="title-icon">{icon("document")}{escape(item['title'])}</h1>
+<p>{original}</p><section class="panel"><h2>Medium</h2><dl>{metadata}</dl>{preview}{access}</section>
+<section class="panel"><h2>Verknüpfte Datensätze</h2>{list_items(owner_links)}</section>
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "media", media_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>'''
     return layout(item["title"], content)
+
+
+def media_library_page(connection, query, page, media_root=None):
+    term = query.strip()[:100]
+    page = min(max(page, 1), 10000)
+    pattern = f'%{term}%'
+    count = connection.execute("SELECT COUNT(*) FROM media WHERE title LIKE ? COLLATE NOCASE", (pattern,)).fetchone()[0]
+    items = connection.execute("SELECT * FROM media WHERE title LIKE ? COLLATE NOCASE ORDER BY title LIMIT 50 OFFSET ?",
+                               (pattern, (page - 1) * 50)).fetchall()
+    cards = []
+    for item in items:
+        available = bool(item["relative_path"] and media_root and (Path(media_root) / item["relative_path"]).is_file())
+        preview = (f'<img src="/media/{quote(item["id"])}" alt="" loading="lazy">'
+                   if available and (item["mime_type"] or "").startswith("image/") else icon("document"))
+        cards.append(f'<li><article class="media-card"><a href="/media-info/{quote(item["id"])}">'
+                     f'{preview}<span>{escape(item["title"])}</span></a></article></li>')
+    previous = link("← Vorherige", f'/media-library?q={quote(term)}&page={page - 1}') if page > 1 else ""
+    following = link("Nächste →", f'/media-library?q={quote(term)}&page={page + 1}') if page * 50 < count else ""
+    results_html = '<ul class="media-library">' + ''.join(cards) + '</ul>' if cards else '<p>Keine Medien gefunden.</p>'
+    content = f'''<h1>Medienverzeichnis</h1><p>{count} Medienobjekte gefunden. Bilder erscheinen nur, wenn die Datei im privaten Import verfügbar ist.</p>
+<form class="search panel" action="/media-library" method="get"><label for="media-search">Medien suchen</label>
+<div><input id="media-search" name="q" type="search" value="{escape(term, quote=True)}"><button>Suchen</button></div></form>
+<section class="panel"><h2>Medien</h2>{results_html}
+<nav class="pagination" aria-label="Medienseiten">{previous} {following}</nav></section>'''
+    return layout("Medienverzeichnis", content)
 
 
 def person_image(connection, person_id, media_root):
@@ -878,37 +923,49 @@ def generation_bands(generations, ancestors):
     return ''.join(bands)
 
 
-def tree_page(connection, person_id, depth=3):
+def tree_page(connection, person_id, depth=3, view="both"):
     person = connection.execute("SELECT * FROM people WHERE id=?", (person_id,)).fetchone()
     if not person:
         return None
-    depth = min(max(depth, 2), 5)
+    depth = min(max(depth, 2), 8)
+    view = view if view in ("both", "ancestors", "descendants") else "both"
     partners = connection.execute(
         "SELECT DISTINCT people.* FROM people JOIN families ON "
         "(people.id=families.husband_id AND families.wife_id=?) OR "
         "(people.id=families.wife_id AND families.husband_id=?) ORDER BY people.name", (person_id, person_id)
     ).fetchall()
-    ancestors, ancestors_truncated, ancestor_generations = tree_branches(connection, person_id, person["name"], depth, True)
-    descendants, descendants_truncated, descendant_generations = tree_branches(connection, person_id, person["name"], depth, False)
+    ancestors, ancestors_truncated, ancestor_generations = tree_branches(connection, person_id, person["name"], depth, True) if view != "descendants" else ("", False, {})
+    descendants, descendants_truncated, descendant_generations = tree_branches(connection, person_id, person["name"], depth, False) if view != "ancestors" else ("", False, {})
     truncation = ('<p class="muted">Diese Ansicht zeigt höchstens 250 Personen je Richtung. '
                   'Öffne eine Person weiter außen als neuen Ausgangspunkt.</p>') if ancestors_truncated or descendants_truncated else ''
     initials = "".join(part[0] for part in person["name"].split()[:2]).upper()
+    def view_link(mode, label):
+        current = ' aria-current="page"' if view == mode else ""
+        return f'<a href="/tree/{quote(person_id)}?depth={depth}&amp;view={mode}"{current}>{label}</a>'
+
+    view_links = ' · '.join(view_link(mode, label)
+                            for mode, label in (("both", "Gesamtansicht"), ("ancestors", "Vorfahren"),
+                                                ("descendants", "Nachkommen")))
+    ancestor_section = (f'<section class="generation-group" aria-labelledby="ancestors-title">'
+                        f'<h2 id="ancestors-title">Vorfahren</h2>{generation_bands(ancestor_generations, True) or "<p>Keine Vorfahren verknüpft.</p>"}</section>') if view != "descendants" else ""
+    descendant_section = (f'<section class="generation-group" aria-labelledby="descendants-title">'
+                          f'<h2 id="descendants-title">Nachkommen</h2>{generation_bands(descendant_generations, False) or "<p>Keine Nachkommen verknüpft.</p>"}</section>') if view != "ancestors" else ""
+    nested_ancestors = f'<h2>Vorfahren</h2>{ancestors or "<p>Keine Vorfahren verknüpft.</p>"}' if view != "descendants" else ""
+    nested_descendants = f'<h2>Nachkommen</h2>{descendants or "<p>Keine Nachkommen verknüpft.</p>"}' if view != "ancestors" else ""
     content = f'''<div class="tree-page"><p class="back">{link('← Zur Person', '/person/' + quote(person_id))}</p>
 <header class="tree-toolbar"><div><p class="eyebrow">Familienlinien</p><h1>Familienbaum</h1>
 <p>Vorfahren und Nachkommen der Ausgangsperson.</p></div>
 <form class="tree-controls" action="/tree/{quote(person_id)}" method="get"><label for="depth">Generationen</label>
-<select id="depth" name="depth">{''.join(f'<option value="{number}"{" selected" if number == depth else ""}>{number}</option>' for number in range(2, 6))}</select>
+<input type="hidden" name="view" value="{view}"><select id="depth" name="depth">{''.join(f'<option value="{number}"{" selected" if number == depth else ""}>{number}</option>' for number in range(2, 9))}</select>
 <button type="submit">Anzeigen</button></form></header>
-{truncation}<div class="generation-map"><section class="generation-group" aria-labelledby="ancestors-title">
-<h2 id="ancestors-title">Vorfahren</h2>{generation_bands(ancestor_generations, True) or '<p>Keine Vorfahren verknüpft.</p>'}</section>
+<nav aria-label="Baumansicht wählen"><p>{view_links}</p></nav>
+{truncation}<div class="generation-map">{ancestor_section}
 <section class="focus-person" aria-labelledby="focus-title"><span class="person-initials" aria-hidden="true">{escape(initials)}</span>
 <div><p class="eyebrow">Ausgangsperson</p><h2 id="focus-title">{person_link(person)}</h2>
 {('<p>Partner: ' + ', '.join(person_link(member) for member in partners) + '</p>') if partners else ''}</div></section>
-<section class="generation-group" aria-labelledby="descendants-title"><h2 id="descendants-title">Nachkommen</h2>
-{generation_bands(descendant_generations, False) or '<p>Keine Nachkommen verknüpft.</p>'}</section></div>
+{descendant_section}</div>
 <details class="relation-details"><summary>Familienlinien als verschachtelte Liste</summary>
-<h2>Vorfahren</h2>{ancestors or '<p>Keine Vorfahren verknüpft.</p>'}
-<h2>Nachkommen</h2>{descendants or '<p>Keine Nachkommen verknüpft.</p>'}</details></div>'''
+{nested_ancestors}{nested_descendants}</details></div>'''
     return layout("Familienbaum", content)
 
 
@@ -1369,6 +1426,12 @@ class Handler(BaseHTTPRequestHandler):
                     body = sources_page(connection, parameters.get("q", [""])[0])
                 elif route == "/reports":
                     body = reports_page(connection)
+                elif route == "/media-library":
+                    try:
+                        page = int(parameters.get("page", ["1"])[0])
+                    except ValueError:
+                        page = 1
+                    body = media_library_page(connection, parameters.get("q", [""])[0], page, self.media_root)
                 elif route == "/reports/statistics":
                     body = statistics_page(connection)
                 elif route == "/reports/families":
@@ -1422,7 +1485,8 @@ class Handler(BaseHTTPRequestHandler):
                         depth = int(parameters.get("depth", ["3"])[0])
                     except ValueError:
                         depth = 3
-                    body = tree_page(connection, route.rsplit("/", 1)[1], depth)
+                    body = tree_page(connection, route.rsplit("/", 1)[1], depth,
+                                     parameters.get("view", ["both"])[0])
                 elif re.fullmatch(r"/source/[A-Za-z0-9_-]+", route):
                     body = source_page(connection, route.rsplit("/", 1)[1], self.media_root)
                 elif re.fullmatch(r"/media-info/[A-Za-z0-9_-]+", route):

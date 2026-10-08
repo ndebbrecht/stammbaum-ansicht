@@ -135,11 +135,12 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Personenseiten mit seitlichen Eltern- und Kinderkacheln, Partner direkt neben dem Namen und Geschwistern in eigenen, anklickbaren Kacheln; auf schmalen Bildschirmen ohne seitliches Scrollen gestapelt
 - Verfügbare Personenbilder als Profilbild und kleine Vorschau bei Eltern, Kindern, Geschwistern und Partnern; Quellen in Übersichten nur als Büroklammer-Link, ausgeschriebene Angaben auf der Ereignis- bzw. Quellenseite
 - Eigene Ereignisseiten und eine durchsuchbare Ereignisliste; Ortsangaben kürzen Bundesländer und Länder ab (z. B. NI, DE). Ereigniskoordinaten aus `PLAC/MAP/LATI/LONG` werden importiert und für die eingebettete Karte verwendet; ohne Koordinaten bleibt die Ortssuche. Google Maps lädt erst nach Klick.
-- Kompakter Familienbaum mit wählbarer Tiefe (2–5), nach Generationen geordneten Vorfahren und Nachkommen sowie aufklappbaren, semantisch verschachtelten Familienlinien; dazu kürzester Verbindungsweg zwischen zwei Personen
+- Kompakter Familienbaum mit wählbarer Tiefe (2–8), Gesamt-, Vorfahren- und Nachkommenansicht sowie aufklappbaren, semantisch verschachtelten Familienlinien; dazu kürzester Verbindungsweg zwischen zwei Personen
 - Ereignisdetails mit GEDCOM-Quellenverweis, Belegstelle und getrenntem Scanstatus. Ein einzelner Scan der Quelle wird verlinkt; bei mehreren Dateien ohne passende Seitenzuordnung wird keine ereignisspezifische Datei behauptet.
 - Import und Anzeige von GEDCOM-Notizen, Repositorien, weiteren Beziehungen sowie zusätzlichen Ereignistypen wie Einwanderung und Adoption
 - Verlobung und weitere Familienereignisse auf den beteiligten Personenseiten
 - Verknüpfte Bilder und Dokumente aus GEDCOM-Medienobjekten
+- Durchsuchbares Medienverzeichnis mit verfügbaren Bildvorschauen und Rückverweisen auf verknüpfte Personen, Familien, Ereignisse und Quellen
 - Automatischer Hell-/Dunkelmodus gemäß Geräteeinstellung
 - Reduziertes Archivdesign mit klaren Datenbereichen, sichtbaren Tastaturfokussen und responsiver Darstellung ohne seitliches Scrollen
 - Startperson aus dem GEDCOM-Merkmal `_STP` oder per privater Serveroption
@@ -154,7 +155,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Personen-Zeitleisten mit eigenen und gemeinsamen Familienereignissen; ungefähre Daten und Zeitspannen bleiben getrennt von eindeutig datierten Ereignissen
 
 Noch nicht enthalten: Bearbeitung und GEDCOM-Export. Die Baumansicht zeigt
-jeweils bis zu fünf Generationen um eine Ausgangsperson, keinen vollständigen
+jeweils bis zu acht Generationen um eine Ausgangsperson, keinen vollständigen
 interaktiven Gesamtbaum. Bei sehr großen Familienlinien begrenzt sie die
 Anzeige auf 250 Personen je Richtung und erlaubt das Weiterwandern über
 eine neue Ausgangsperson. Generationskarten ordnen sich auf schmalen
