@@ -121,6 +121,10 @@ li { margin-block: .45rem; }
 .gedcom-lines { padding-left: 3rem; overflow-wrap: anywhere; }
 .gedcom-lines li { padding: .2rem .5rem; border-bottom: 1px solid var(--border); }
 .gedcom-lines code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.panel > .record-tree { columns: initial; }
+.record-tree { list-style: none; padding-left: 1rem; border-left: 1px solid var(--border); overflow-wrap: anywhere; }
+.record-tree li { margin: .25rem 0; padding: .2rem 0; }
+.record-tree code { color: var(--muted); font-size: .85em; }
 .panel > .source-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: .8rem; columns: initial; padding: 0; list-style: none; }
 .panel > .source-cards li { min-width: 0; margin: 0; padding: 0; border: 0; }
 .source-card { height: 100%; padding: 1rem; border: 1px solid var(--border); background: var(--soft); overflow-wrap: anywhere; }

@@ -31,6 +31,7 @@ CREATE TABLE source_repositories (source_id TEXT NOT NULL, repository_id TEXT NO
     call_number TEXT, PRIMARY KEY (source_id, repository_id));
 CREATE TABLE associations (person_id TEXT NOT NULL, other_person_id TEXT NOT NULL, relation TEXT);
 CREATE TABLE export_records (id INTEGER PRIMARY KEY, xref TEXT, tag TEXT NOT NULL, value TEXT NOT NULL, raw_text TEXT NOT NULL);
+CREATE TABLE export_nodes (id INTEGER PRIMARY KEY, record_id INTEGER NOT NULL, parent_id INTEGER, tag TEXT NOT NULL, value TEXT NOT NULL);
 CREATE TABLE places (record_id INTEGER PRIMARY KEY, name TEXT NOT NULL, latitude REAL, longitude REAL, alternate_names TEXT NOT NULL, geo TEXT, format_id TEXT);
 CREATE TABLE labels (id TEXT PRIMARY KEY, title TEXT NOT NULL, color TEXT);
 CREATE TABLE person_labels (person_id TEXT NOT NULL, label_id TEXT NOT NULL, PRIMARY KEY (person_id, label_id));
@@ -44,6 +45,7 @@ CREATE INDEX note_links_owner ON note_links(owner_type, owner_id);
 CREATE INDEX associations_person ON associations(person_id);
 CREATE INDEX export_records_tag ON export_records(tag);
 CREATE INDEX export_records_xref ON export_records(xref);
+CREATE INDEX export_nodes_record ON export_nodes(record_id);
 CREATE INDEX places_name ON places(name);
 """
 
@@ -58,6 +60,9 @@ FACT_NAMES = {
     "CENS": "Volkszählung", "NATU": "Einbürgerung", "RETI": "Ruhestand",
     "CONF": "Konfirmation", "CREM": "Einäscherung", "WILL": "Testament",
     "PROB": "Nachlassverfahren", "ANUL": "Annullierung", "DIVF": "Scheidungsantrag",
+    "LATR": "Letzte Ölung", "ORDN": "Ordination", "FUNE": "Trauerfeier",
+    "FCOM": "Erstkommunion", "MISE": "MacFamilyTree-Ereignis MISE",
+    "MIIN": "MacFamilyTree-Ereignis MIIN", "MIDE": "MacFamilyTree-Ereignis MIDE",
 }
 DOCUMENT_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
@@ -251,12 +256,19 @@ def import_export_records(database, path):
             current.append(line)
         if current:
             add_export_record(database, current)
-    place_rows = iter(database.execute("SELECT id, value FROM export_records WHERE tag='_PLAC' ORDER BY id").fetchall())
+    raw_rows = database.execute("SELECT id, xref, tag, value FROM export_records ORDER BY id").fetchall()
+    parsed_count = 0
     for record_id, record in records(path):
+        if parsed_count >= len(raw_rows):
+            raise ValueError("More parsed records than original records")
+        raw = raw_rows[parsed_count]
+        parsed_count += 1
+        if raw[2] != record.tag or raw[1] != record_id:
+            raise ValueError("Parsed records are not aligned with the export")
+        add_export_nodes(database, raw[0], None, record.children)
         if record.tag != "_PLAC":
             continue
-        raw = next(place_rows)
-        if raw[1] != record.value:
+        if raw[3] != record.value:
             raise ValueError("Place records are not aligned with the export")
         mapping = record.first("MAP")
         latitude = coordinate(mapping.text("LATI"), "NS", 90) if mapping else None
@@ -267,6 +279,16 @@ def import_export_records(database, path):
                          (raw[0], record.value, latitude, longitude,
                           json.dumps([node.value for node in record.all("_ALT")], ensure_ascii=False),
                           record.text("_GEO"), record.text("_PTE").strip("@")))
+    if parsed_count != len(raw_rows):
+        raise ValueError("Original records were not all parsed")
+
+
+def add_export_nodes(database, record_id, parent_id, nodes):
+    for node in nodes:
+        database.execute("INSERT INTO export_nodes(record_id,parent_id,tag,value) VALUES (?,?,?,?)",
+                         (record_id, parent_id, node.tag, node.value))
+        node_id = database.execute("SELECT last_insert_rowid()").fetchone()[0]
+        add_export_nodes(database, record_id, node_id, node.children)
 
 
 def add_export_record(database, lines):
@@ -409,7 +431,7 @@ def build(gedcom_path, database_path, archive_root=None, source_links_path=None,
                 import_source_links(database, source_links_path)
             database.commit()
             counts = {table: database.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                      for table in ("people", "families", "sources", "facts", "citations", "media", "media_links", "archive_files", "source_archive_links", "export_records", "places", "labels", "person_labels")}
+                      for table in ("people", "families", "sources", "facts", "citations", "media", "media_links", "archive_files", "source_archive_links", "export_records", "export_nodes", "places", "labels", "person_labels")}
         finally:
             database.close()
         temporary_path.chmod(0o600)

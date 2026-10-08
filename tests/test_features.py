@@ -49,11 +49,40 @@ class FeatureTest(unittest.TestCase):
                 reconstructed = ''.join(row[0] for row in connection.execute("SELECT raw_text FROM export_records ORDER BY id"))
                 self.assertEqual(reconstructed, gedcom)
                 self.assertIn("_UNSUPPORTED Beispielwert", export_record_page(connection, 2))
+                self.assertIn("Felder und Verweise", export_record_page(connection, 2))
+                self.assertIn('href="/export-record/5"', export_record_page(connection, 2))
+                self.assertGreater(counts["export_nodes"], 0)
                 self.assertIn("HEAD", export_page(connection, "", "", 1))
                 self.assertIn("Musterstadt", places_page(connection, "", 1))
                 self.assertIn("Altstadt", place_page(connection, 3))
                 self.assertIn("Forschungsfall", person_page(connection, "I1"))
+                self.assertIn("_UNSUPPORTED", person_page(connection, "I1"))
                 self.assertIn("Ortsdatensatz", event_page(connection, 1))
+
+    def test_uncommon_events_are_not_relegated_to_raw_export(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Ada /Beispiel/
+1 MISE
+2 DATE 1 JAN 1900
+2 PLAC Musterstadt
+3 MAP
+4 LATI N52.123456
+4 LONG E7.123456
+1 LATR
+2 DATE 2 JAN 1900
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            counts = build(root / "family.ged", database_path)
+            self.assertEqual(counts["facts"], 2)
+            with database(database_path) as connection:
+                profile = person_page(connection, "I1")
+                self.assertIn("MacFamilyTree-Ereignis MISE", profile)
+                self.assertIn("Letzte Ölung", profile)
+                self.assertIn("Koordinaten aus dem GEDCOM", event_page(connection, 1))
 
     def test_exported_start_person_and_coordinates(self):
         gedcom = """0 @I1@ INDI

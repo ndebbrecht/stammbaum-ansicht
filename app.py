@@ -16,6 +16,7 @@ import time
 from urllib.parse import parse_qs, quote, urlsplit
 
 from auth import verify_password
+from import_data import FACT_NAMES
 
 
 ROOT = Path(__file__).parent
@@ -37,6 +38,17 @@ COUNTRY_CODES = {
     "italien": "IT", "italy": "IT", "spanien": "ES", "spain": "ES",
     "vereinigtes königreich": "GB", "united kingdom": "GB", "england": "GB",
     "vereinigte staaten": "US", "united states": "US", "usa": "US",
+}
+GEDCOM_LABELS = {
+    "NAME": "Name", "GIVN": "Vorname", "SURN": "Nachname", "NICK": "Rufname",
+    "SEX": "Geschlecht", "BIRT": "Geburt", "DEAT": "Tod", "CHR": "Taufe",
+    "MARR": "Heirat", "DATE": "Datum", "PLAC": "Ort", "MAP": "Karte",
+    "LATI": "Breitengrad", "LONG": "Längengrad", "RELI": "Religion",
+    "EMAIL": "E-Mail", "PHON": "Telefon", "OCCU": "Beruf", "RESI": "Wohnort",
+    "NOTE": "Notiz", "SOUR": "Quelle", "PAGE": "Belegstelle", "OBJE": "Medium",
+    "FILE": "Datei", "TITL": "Titel", "AUTH": "Urheber", "PUBL": "Veröffentlichung",
+    "REPO": "Archiv", "_ALT": "Alternativer Name", "_GEO": "Geografische Kennung",
+    "LABL": "Kennzeichnung", "_STP": "Startperson",
 }
 
 
@@ -87,6 +99,42 @@ def original_record_link(connection, xref):
     return link("Originaldaten ansehen", f'/export-record/{record["id"]}') if record else ""
 
 
+def export_tree(connection, record_id, excluded_tags=None):
+    nodes = connection.execute("SELECT id, parent_id, tag, value FROM export_nodes WHERE record_id=? ORDER BY id",
+                               (record_id,)).fetchall()
+    children = {}
+    for node in nodes:
+        children.setdefault(node["parent_id"], []).append(node)
+    references = {}
+
+    def value_html(value):
+        match = re.fullmatch(r"@([A-Za-z0-9_-]+)@", value)
+        if match:
+            reference = match.group(1)
+            if reference not in references:
+                found = connection.execute("SELECT id FROM export_records WHERE xref=? ORDER BY id LIMIT 1",
+                                           (reference,)).fetchone()
+                references[reference] = found["id"] if found else None
+            if references[reference]:
+                return link(reference, f'/export-record/{references[reference]}')
+        return escape(value).replace("\n", "<br>")
+
+    def render(parent_id):
+        entries = []
+        for node in children.get(parent_id, []):
+            if parent_id is None and excluded_tags and node["tag"] in excluded_tags:
+                continue
+            label = GEDCOM_LABELS.get(node["tag"], node["tag"])
+            description = f'{escape(label)} <code>({escape(node["tag"])})</code>'
+            if node["value"]:
+                description += f': {value_html(node["value"])}'
+            nested = render(node["id"])
+            entries.append(f'<li>{description}{nested}</li>')
+        return '<ul class="record-tree">' + ''.join(entries) + '</ul>' if entries else ''
+
+    return render(None)
+
+
 def export_page(connection, query, tag, page):
     term = query.strip()[:100]
     tag = tag.strip()[:20]
@@ -130,8 +178,9 @@ def export_record_page(connection, record_id):
         related = link("Zur Ortsansicht", f'/place/{record_id}')
     title = f'{record["tag"]} · {record["xref"] or record["value"] or "ohne Kennung"}'
     content = f'''<p class="back">{link('← Alle Exportdaten', '/export')}</p><h1>{escape(title)}</h1>
-<p>{len(lines)} Originalzeilen. {related}</p><section class="panel" aria-labelledby="original-lines">
-<h2 id="original-lines">GEDCOM-Datensatz</h2><ol class="gedcom-lines">{entries}</ol></section>'''
+<p>{len(lines)} Originalzeilen. {related}</p>
+<section class="panel"><h2>Felder und Verweise</h2>{export_tree(connection, record_id) or '<p>Keine weiteren Felder.</p>'}</section>
+<details class="panel"><summary>Originalzeilen anzeigen</summary><ol class="gedcom-lines">{entries}</ol></details>'''
     return layout("Originaldaten", content)
 
 
@@ -379,6 +428,9 @@ def person_page(connection, person_id, media_root=None):
     labels = connection.execute("SELECT labels.title FROM person_labels JOIN labels ON labels.id=person_labels.label_id "
                                 "WHERE person_labels.person_id=? ORDER BY labels.title", (person_id,)).fetchall()
     label_html = f'<p>Kennzeichnungen: {escape(", ".join(item["title"] for item in labels))}</p>' if labels else ''
+    record = connection.execute("SELECT id FROM export_records WHERE tag='INDI' AND xref=?", (person_id,)).fetchone()
+    excluded = set(FACT_NAMES) | {"FAMS", "FAMC", "OBJE", "NOTE", "ASSO", "SOUR", "CHAN", "_CRE", "LABL"}
+    additional_fields = export_tree(connection, record["id"], excluded) if record else ""
     parent_families = connection.execute(
         "SELECT families.* FROM families JOIN children ON children.family_id=families.id WHERE children.person_id=?",
         (person_id,),
@@ -462,7 +514,7 @@ def person_page(connection, person_id, media_root=None):
 <p>{original_record_link(connection, person_id)}</p></div>
 {portrait_figure(person, images[person_id], "profile-portrait")}</div></section>
 {sibling_section}
-<nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#relations">Beziehungen</a></nav>
+<nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#details">Weitere Angaben</a><a href="#relations">Beziehungen</a></nav>
 <div class="columns"><section class="panel" id="events" aria-labelledby="events-title"><h2 id="events-title">Lebensereignisse</h2>{facts_html(connection, "person", person_id, media_root)}</section>
 <section class="panel" id="family-events" aria-labelledby="family-events-title"><h2 id="family-events-title">Partnerschaft & Hochzeit</h2>{family_events or '<p>Keine gemeinsamen Ereignisse im GEDCOM verzeichnet.</p>'}</section></div>
 <section class="panel" id="media" aria-labelledby="media-title"><h2 id="media-title">Medien & Quellen</h2>
@@ -471,6 +523,7 @@ def person_page(connection, person_id, media_root=None):
 <h3>Dokumente zu Lebensereignissen</h3>{fact_media or '<p>Keine weiteren Dokumente zu Lebensereignissen.</p>'}</section>
 {f'<section class="panel"><h2>Medien zu Familien</h2>{"".join(family_media)}</section>' if family_media else ''}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "person", person_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
+<section class="panel" id="details"><h2>Weitere Angaben aus dem Export</h2>{additional_fields or '<p>Keine weiteren Angaben.</p>'}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
 <p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
 <p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p></section>'''
@@ -700,7 +753,7 @@ def event_page(connection, fact_id, media_root=None):
                    f'</section><script src="/static/map.js" defer></script>') if map_query else ""
     content = f'''<div class="event-detail"><p class="back">{link('← Zu den Ereignissen', '/events')}</p>
 <section class="person-hero"><p class="eyebrow">Ereignis</p><h1>{escape(fact['kind'])}</h1>
-<p>Betroffene Person oder Familie: {event_owner(connection, fact)}</p></section>
+<p>Betroffene Person oder Familie: {event_owner(connection, fact)} · {original_record_link(connection, fact["owner_id"])}</p></section>
 <section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>{map_section}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "fact", str(fact_id)) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
 <section class="panel" id="sources"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(connection, citations, media_root)}
@@ -736,6 +789,8 @@ def source_page(connection, source_id, media_root=None):
     source = connection.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
     if not source:
         return None
+    original = connection.execute("SELECT id FROM export_records WHERE tag='SOUR' AND xref=?", (source_id,)).fetchone()
+    extra_fields = export_tree(connection, original["id"], {"TITL", "AUTH", "PUBL", "TEXT", "NOTE", "OBJE", "REPO"}) if original else ""
     cited_facts = connection.execute(
         "SELECT facts.* FROM facts JOIN citations ON citations.fact_id=facts.id "
         "WHERE citations.source_id=? ORDER BY facts.id", (source_id,)
@@ -778,6 +833,7 @@ def source_page(connection, source_id, media_root=None):
 <section class="panel"><h2>Quellenangaben</h2><dl>{metadata or '<dt>Metadaten</dt><dd>Keine weiteren Angaben im GEDCOM.</dd>'}</dl></section>
 <section class="panel"><h2>Archiv oder Repositorium</h2>{list_items(repository_items)}</section>
 <section class="panel"><h2>Quellennotizen</h2>{notes_html(connection, "source", source_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
+{f'<section class="panel"><h2>Weitere Angaben aus dem Export</h2>{extra_fields}</section>' if extra_fields else ''}
 <section class="panel"><h2>Verknüpfte Medien</h2>{media_for(connection, "source", source_id, media_root) or '<p>Keine Medien verknüpft.</p>'}</section>
 <section class="panel"><h2>Archivdokumente</h2>{list_items(archive_entries) if archive_entries else '<p>Noch keine Zuordnung zum Quellenarchiv geprüft oder eingetragen.</p>'}</section>
 <section class="panel"><h2>Belegte Ereignisse</h2>{list_items([link(fact['kind'], '/event/' + str(fact['id'])) + ' · ' + event_owner(connection, fact) for fact in cited_facts])}</section>

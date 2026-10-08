@@ -143,8 +143,9 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Automatischer Hell-/Dunkelmodus gemäß Geräteeinstellung
 - Reduziertes Archivdesign mit klaren Datenbereichen, sichtbaren Tastaturfokussen und responsiver Darstellung ohne seitliches Scrollen
 - Startperson aus dem GEDCOM-Merkmal `_STP` oder per privater Serveroption
-- Durchsuchbare Originaldatenansicht für jeden GEDCOM-Datensatz einschließlich `HEAD`, `_PLAC`, MacFamilyTree-Erweiterungen und bislang fachlich nicht interpretierter Felder; der Import bewahrt die ursprünglichen Zeilen pro Datensatz.
+- Durchsuchbare Originaldatenansicht für jeden GEDCOM-Datensatz einschließlich `HEAD`, `_PLAC` und MacFamilyTree-Erweiterungen. Alle Felder sind zusätzlich als hierarchische, verlinkte Struktur importiert; die ursprünglichen Zeilen bleiben pro Datensatz erhalten.
 - Ortsverzeichnis mit allen eigenständigen `_PLAC`-Datensätzen, alternativen Namen, Koordinaten und verknüpften Ereignissen; Personenkennzeichnungen aus `LABL` erscheinen im Profil.
+- Weitere GEDCOM-Angaben wie zusätzliche Namensformen, Religion und Kontaktfelder erscheinen im Personenprofil; seltene Ereignistypen einschließlich `MISE`, `LATR`, `ORDN`, `FUNE`, `FCOM`, `MIIN` und `MIDE` haben Ereignisseiten. Proprietäre Kürzel ohne gesicherte Bedeutung bleiben als Kürzel kenntlich.
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
 - Getrennte Kennzeichnung fehlender formaler Quellenverweise, angehängter Medien und offener Original-Zuordnungen
 - Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen
