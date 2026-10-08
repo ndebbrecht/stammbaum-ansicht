@@ -42,6 +42,7 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn('data-map-query="Bad Iburg, Landkreis Osnabrück, Niedersachsen, Deutschland"', event)
                 self.assertIn('src="/static/map.js"', event)
                 self.assertNotIn("<iframe", event)
+                self.assertNotIn("https://www.google.com/maps/search/", event)
 
     def test_person_navigation_shows_parents_children_partners_and_siblings(self):
         gedcom = """0 @I1@ INDI

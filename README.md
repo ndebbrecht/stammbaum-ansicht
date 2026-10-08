@@ -132,9 +132,9 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 ## Aktueller Umfang
 
 - Personensuche nach Name, Ereignisort, Ereignisjahr und vorhandenem oder fehlendem GEDCOM-Quellenverweis
-- Personenseiten mit seitlichen Eltern- und Kinderlinks, Partner direkt neben dem Namen und Geschwistern in einer eigenen Linkleiste; auf schmalen Bildschirmen ohne seitliches Scrollen gestapelt
+- Personenseiten mit seitlichen Eltern- und Kinderkacheln, Partner direkt neben dem Namen und Geschwistern in eigenen, anklickbaren Kacheln; auf schmalen Bildschirmen ohne seitliches Scrollen gestapelt
 - Verfügbare Personenbilder als Profilbild und kleine Vorschau bei Eltern, Kindern, Geschwistern und Partnern; Quellen in Übersichten nur als Büroklammer-Link, ausgeschriebene Angaben auf der Ereignis- bzw. Quellenseite
-- Eigene Ereignisseiten und eine durchsuchbare Ereignisliste; Ortsangaben kürzen Bundesländer und Länder ab (z. B. NI, DE). Karten werden nur nach Klick geladen und übermitteln dann den vollständigen Ereignisort an Google Maps.
+- Eigene Ereignisseiten und eine durchsuchbare Ereignisliste; Ortsangaben kürzen Bundesländer und Länder ab (z. B. NI, DE). Karten erscheinen als eingebettete Kachel auf der Ereignisseite, werden nur nach Klick geladen und übermitteln dann den vollständigen Ereignisort an Google Maps.
 - Kompakter Familienbaum mit wählbarer Tiefe (2–5), nach Generationen geordneten Vorfahren und Nachkommen sowie aufklappbaren, semantisch verschachtelten Familienlinien; dazu kürzester Verbindungsweg zwischen zwei Personen
 - Lebensereignisse mit vorhandenen GEDCOM-Quellenverweisen und Seitenangaben
 - Import und Anzeige von GEDCOM-Notizen, Repositorien, weiteren Beziehungen sowie zusätzlichen Ereignistypen wie Einwanderung und Adoption
