@@ -537,12 +537,15 @@ def event_page(connection, fact_id, media_root=None):
     fact = connection.execute("SELECT * FROM facts WHERE id=?", (fact_id,)).fetchone()
     if not fact:
         return None
+    map_query = ", ".join(place_parts(fact["place"] or ""))[:500]
     fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")), ("Angabe", fact["value"])]
-    details = "".join(f'<dt>{label}</dt><dd>{escape(value)}</dd>' for label, value in fields if value)
+    details = "".join(f'<dt>{label}</dt><dd>{escape(value)}'
+                      + ('<br><a href="#map">Karte zum Ort ansehen ↓</a>' if label == "Ort" and map_query else '')
+                      + '</dd>' for label, value in fields if value)
     citations = citations_for(connection, "fact", str(fact_id))
     media = media_for(connection, "fact", str(fact_id), media_root)
-    map_query = ", ".join(place_parts(fact["place"] or ""))[:500]
-    map_section = (f'<section class="panel event-map" aria-labelledby="map-title"><h2 id="map-title">Karte</h2>'
+    map_section = (f'<section class="panel event-map" id="map" aria-labelledby="map-title"><h2 id="map-title">Karte zum Ort</h2>'
+                   f'<p class="map-place">{escape(format_place(fact["place"]))}</p>'
                    f'<p>Die Karte wird erst auf Wunsch geladen. Dabei wird der Ort an Google Maps übermittelt.</p>'
                    f'<button type="button" class="load-map" data-map-query="{escape(map_query, quote=True)}">Karte laden</button>'
                    f'<div class="map-container"></div>'
@@ -550,10 +553,10 @@ def event_page(connection, fact_id, media_root=None):
     content = f'''<div class="event-detail"><p class="back">{link('← Zu den Ereignissen', '/events')}</p>
 <section class="person-hero"><p class="eyebrow">Ereignis</p><h1>{escape(fact['kind'])}</h1>
 <p>Betroffene Person oder Familie: {event_owner(connection, fact)}</p></section>
-<section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>
+<section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>{map_section}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "fact", str(fact_id)) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
 <section class="panel" id="sources"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(citations)}
-<h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt.</p>'}</section>{map_section}</div>'''
+<h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt.</p>'}</section></div>'''
     return layout(fact["kind"], content)
 
 
