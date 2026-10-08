@@ -14,9 +14,14 @@ CREATE TABLE children (family_id TEXT NOT NULL, person_id TEXT NOT NULL, PRIMARY
 CREATE TABLE facts (id INTEGER PRIMARY KEY, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT, date_text TEXT, place TEXT);
 CREATE TABLE sources (id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT, publication TEXT, notes TEXT);
 CREATE TABLE citations (fact_id INTEGER NOT NULL, source_id TEXT NOT NULL, page TEXT, detail TEXT);
+CREATE TABLE record_citations (owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, source_id TEXT NOT NULL, page TEXT);
+CREATE TABLE media (id TEXT PRIMARY KEY, title TEXT NOT NULL, relative_path TEXT, mime_type TEXT);
+CREATE TABLE media_links (owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, media_id TEXT NOT NULL,
+    PRIMARY KEY (owner_type, owner_id, media_id));
 CREATE TABLE archive_files (id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL UNIQUE, size_bytes INTEGER NOT NULL, mime_type TEXT NOT NULL, metadata_json TEXT);
 CREATE INDEX facts_owner ON facts(owner_type, owner_id);
 CREATE INDEX citations_fact ON citations(fact_id);
+CREATE INDEX media_links_owner ON media_links(owner_type, owner_id);
 CREATE INDEX archive_files_path ON archive_files(relative_path);
 """
 
@@ -24,6 +29,9 @@ FACT_NAMES = {
     "BIRT": "Geburt", "DEAT": "Tod", "BAPM": "Taufe", "CHR": "Taufe",
     "BURI": "Bestattung", "MARR": "Heirat", "DIV": "Scheidung",
     "OCCU": "Beruf", "RESI": "Wohnort", "EVEN": "Ereignis",
+    "EDUC": "Ausbildung", "GRAD": "Abschluss", "ENGA": "Verlobung",
+    "MARL": "Aufgebot", "MARB": "Aufgebot", "MRCI": "Kirchliche Trauung",
+    "MRRE": "Hochzeitsfeier",
 }
 DOCUMENT_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
@@ -91,6 +99,25 @@ def add_fact(database, owner_type, owner_id, kind, node):
                 "INSERT INTO citations(fact_id,source_id,page,detail) VALUES (?,?,?,?)",
                 (fact_id, citation.value.strip("@"), citation.text("PAGE"), citation.text("DATA")),
             )
+    add_media_links(database, "fact", str(fact_id), node)
+
+
+def add_media_links(database, owner_type, owner_id, node):
+    for media in node.all("OBJE"):
+        if media.value.startswith("@") and media.value.endswith("@"):
+            database.execute(
+                "INSERT OR IGNORE INTO media_links VALUES (?,?,?)",
+                (owner_type, owner_id, media.value.strip("@")),
+            )
+
+
+def add_record_citations(database, owner_type, owner_id, node):
+    for citation in node.all("SOUR"):
+        if citation.value.startswith("@") and citation.value.endswith("@"):
+            database.execute(
+                "INSERT INTO record_citations VALUES (?,?,?,?)",
+                (owner_type, owner_id, citation.value.strip("@"), citation.text("PAGE")),
+            )
 
 
 def import_gedcom(database, path):
@@ -107,6 +134,8 @@ def import_gedcom(database, path):
             for node in record.children:
                 if node.tag in FACT_NAMES:
                     add_fact(database, "person", record_id, node.tag, node)
+            add_media_links(database, "person", record_id, record)
+            add_record_citations(database, "person", record_id, record)
         elif record.tag == "FAM":
             database.execute(
                 "INSERT INTO families VALUES (?,?,?)",
@@ -117,11 +146,24 @@ def import_gedcom(database, path):
             for node in record.children:
                 if node.tag in FACT_NAMES:
                     add_fact(database, "family", record_id, node.tag, node)
+            add_media_links(database, "family", record_id, record)
+            add_record_citations(database, "family", record_id, record)
         elif record.tag == "SOUR":
             database.execute(
                 "INSERT INTO sources VALUES (?,?,?,?,?)",
                 (record_id, record.text("TITL") or f"Quelle {record_id}", record.text("AUTH"),
                  record.text("PUBL"), record.text("TEXT") or record.text("NOTE")),
+            )
+            add_media_links(database, "source", record_id, record)
+        elif record.tag == "OBJE":
+            file_name = record.text("FILE")
+            safe_name = Path(file_name).name if file_name and not Path(file_name).is_absolute() else ""
+            if safe_name != file_name or Path(safe_name).suffix.lower() not in DOCUMENT_SUFFIXES:
+                safe_name = ""
+            database.execute(
+                "INSERT INTO media VALUES (?,?,?,?)",
+                (record_id, record.text("TITL") or safe_name or f"Medium {record_id}",
+                 safe_name or None, mimetypes.guess_type(safe_name)[0] if safe_name else None),
             )
 
 
@@ -157,7 +199,7 @@ def build(gedcom_path, database_path, archive_root=None):
                 index_archive(database, archive_root)
             database.commit()
             counts = {table: database.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                      for table in ("people", "families", "sources", "facts", "citations", "archive_files")}
+                      for table in ("people", "families", "sources", "facts", "citations", "media", "media_links", "archive_files")}
         finally:
             database.close()
         temporary_path.chmod(0o600)
