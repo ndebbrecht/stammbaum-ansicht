@@ -182,28 +182,34 @@ def person_page(connection, person_id, media_root=None):
     own_families = connection.execute(
         "SELECT * FROM families WHERE husband_id=? OR wife_id=?", (person_id, person_id)
     ).fetchall()
-    parents = []
-    siblings = []
+    parents = {}
+    siblings = {}
     for family in parent_families:
         for parent_id in (family["husband_id"], family["wife_id"]):
             parent = connection.execute("SELECT * FROM people WHERE id=?", (parent_id,)).fetchone()
             if parent:
-                parents.append(person_link(parent))
-        siblings.extend(person_link(child) for child in connection.execute(
+                parents[parent["id"]] = parent
+        for sibling in connection.execute(
             "SELECT people.* FROM people JOIN children ON children.person_id=people.id WHERE children.family_id=? AND people.id<>? ORDER BY name",
             (family["id"], person_id),
-        ))
-    families = []
+        ):
+            siblings[sibling["id"]] = sibling
+    partners = {}
+    children = {}
+    family_media = []
     for family in own_families:
         partner_id = family["wife_id"] if family["husband_id"] == person_id else family["husband_id"]
         partner = connection.execute("SELECT * FROM people WHERE id=?", (partner_id,)).fetchone()
-        children = connection.execute(
+        if partner:
+            partners[partner["id"]] = partner
+        for child in connection.execute(
             "SELECT people.* FROM people JOIN children ON children.person_id=people.id WHERE children.family_id=? ORDER BY name",
             (family["id"],),
-        ).fetchall()
-        families.append(f'<article class="family"><h3>Familie mit {person_link(partner)}</h3>'
-                        f'<h4>Kinder</h4>{list_items([person_link(child) for child in children])}'
-                        f'{media_for(connection, "family", family["id"], media_root)}</article>')
+        ):
+            children[child["id"]] = child
+        media = media_for(connection, "family", family["id"], media_root)
+        if media:
+            family_media.append(f'<section><h3>Mit {person_link(partner)}</h3>{media}</section>')
     family_events = ''.join(f'<article class="family-event"><h3>Mit {person_link(connection.execute("SELECT * FROM people WHERE id=?", (family["wife_id"] if family["husband_id"] == person_id else family["husband_id"],)).fetchone())}</h3>'
                             f'{facts_html(connection, "family", family["id"], media_root)}</article>' for family in own_families)
     direct_media = media_for(connection, "person", person_id, media_root)
@@ -216,24 +222,40 @@ def person_page(connection, person_id, media_root=None):
         "SELECT people.*, associations.relation FROM associations JOIN people ON people.id=associations.other_person_id "
         "WHERE associations.person_id=? ORDER BY people.name", (person_id,),
     ).fetchall()
-    content = f'''<p class="back">{link('← Zur Startseite', '/')}</p><section class="person-hero"><p class="eyebrow">Personenprofil</p><h1>{escape(person["name"])}</h1>
+    def relation_rail(heading, people, side, variant=""):
+        items = ''.join(f'<li>{person_link(member)}</li>' for member in people.values())
+        return (f'<nav class="relation-rail relation-rail-{side}{" " + variant if variant else ""}" aria-label="{heading}">'
+                f'<h2>{heading}</h2>'
+                + (f'<ul>{items}</ul>' if items else f'<p>Keine {heading.lower()} verknüpft.</p>') + '</nav>')
+
+    partner_links = ''.join(f'<a class="partner-link" href="/person/{quote(member["id"])}">'
+                            f'Partner: {escape(member["name"])}</a>' for member in partners.values())
+    sibling_links = ''.join(f'<li>{person_link(member)}</li>' for member in siblings.values())
+    sibling_section = (f'<nav class="sibling-strip" aria-label="Geschwister"><h2>Geschwister</h2>'
+                       f'<ul>{sibling_links}</ul></nav>') if siblings else ''
+    content = f'''<div class="person-layout">{relation_rail("Eltern", parents, "parents")}
+{relation_rail("Kinder", children, "children", "mobile-children")}
+<div class="person-content"><p class="back">{link('← Zur Startseite', '/')}</p>
+<section class="person-hero"><p class="eyebrow">Personenprofil</p><div class="person-heading"><h1>{escape(person["name"])}</h1>
+{f'<div class="partner-actions">{partner_links}</div>' if partner_links else ''}</div>
 <p>Familie, Lebensereignisse und überlieferte Dokumente auf einen Blick.</p></section>
+{sibling_section}
 <nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#relations">Beziehungen</a></nav>
 <div class="columns"><section class="panel" id="events" aria-labelledby="events-title"><h2 id="events-title">Lebensereignisse</h2>{facts_html(connection, "person", person_id, media_root)}</section>
 <section class="panel" id="family-events" aria-labelledby="family-events-title"><h2 id="family-events-title">Partnerschaft & Hochzeit</h2>{family_events or '<p>Keine gemeinsamen Ereignisse im GEDCOM verzeichnet.</p>'}</section></div>
 <section class="panel" id="media" aria-labelledby="media-title"><h2 id="media-title">Medien & Quellen</h2>
 {direct_media or '<p>Keine direkt zugeordneten Medien.</p>'}<h3>Direkte Quellenverweise</h3>{citations_html(direct_citations)}
 <h3>Dokumente zu Lebensereignissen</h3>{fact_media or '<p>Keine weiteren Dokumente zu Lebensereignissen.</p>'}</section>
+{f'<section class="panel"><h2>Medien zu Familien</h2>{"".join(family_media)}</section>' if family_media else ''}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "person", person_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
 <p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
-<p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p>
-<h3>Eltern</h3>{list_items(parents)}<h3>Geschwister</h3>{list_items(siblings)}
-<h3>Partner und Kinder</h3>{''.join(families) or '<p>Keine Familie im GEDCOM verknüpft.</p>'}</section>'''
+<p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p></section>'''
     if associations:
         content += '<section class="panel"><h2>Weitere Beziehungen</h2>' + list_items([
             person_link(person) + (" · " + escape(person["relation"]) if person["relation"] else "")
             for person in associations]) + '</section>'
+    content += f'</div>{relation_rail("Kinder", children, "children", "desktop-children")}</div>'
     return layout(person["name"], content)
 
 

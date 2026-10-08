@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, family_graph, source_page, tree_page
+from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, family_graph, person_page, source_page, tree_page
 from auth import hash_password, verify_password
 from export_archive_index import export
 from import_data import build
@@ -18,6 +18,57 @@ EXAMPLE = Path(__file__).parents[1] / "examples" / "beispiel.ged"
 
 
 class FeatureTest(unittest.TestCase):
+    def test_person_navigation_shows_parents_children_partners_and_siblings(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Clara /Beispiel/
+0 @I2@ INDI
+1 NAME Ada /Beispiel/
+0 @I3@ INDI
+1 NAME Ben /Beispiel/
+0 @I4@ INDI
+1 NAME Dora /Beispiel/
+0 @I5@ INDI
+1 NAME Emil /Beispiel/
+0 @I6@ INDI
+1 NAME Frieda /Beispiel/
+0 @I7@ INDI
+1 NAME Greta /Beispiel/
+0 @I8@ INDI
+1 NAME Hans /Beispiel/
+0 @F1@ FAM
+1 WIFE @I2@
+1 HUSB @I3@
+1 CHIL @I1@
+1 CHIL @I4@
+0 @F2@ FAM
+1 WIFE @I1@
+1 HUSB @I5@
+1 CHIL @I6@
+1 CHIL @I7@
+0 @F3@ FAM
+1 WIFE @I1@
+1 HUSB @I8@
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                page = person_page(connection, "I1")
+                self.assertIn('class="relation-rail relation-rail-parents', page)
+                self.assertIn('class="relation-rail relation-rail-children mobile-children"', page)
+                self.assertIn('class="relation-rail relation-rail-children desktop-children"', page)
+                self.assertIn('aria-label="Geschwister"', page)
+                self.assertIn('href="/person/I4">Dora Beispiel</a>', page)
+                self.assertIn('class="partner-link" href="/person/I5"', page)
+                self.assertIn('class="partner-link" href="/person/I8"', page)
+                self.assertIn('href="/person/I6">Frieda Beispiel</a>', page)
+                self.assertIn('href="/person/I7">Greta Beispiel</a>', page)
+                self.assertNotIn('role="tab"', page)
+                self.assertNotIn('Familie mit', page)
+
     def test_multigeneration_tree_respects_depth_and_family_branches(self):
         gedcom = """0 @I1@ INDI
 1 NAME Alma /Beispiel/

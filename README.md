@@ -132,7 +132,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 ## Aktueller Umfang
 
 - Personensuche nach Name, Ereignisort, Ereignisjahr und vorhandenem oder fehlendem GEDCOM-Quellenverweis
-- Eltern, Geschwister, Partner und Kinder als zugängliche Links
+- Personenseiten mit seitlichen Eltern- und Kinderlinks, Partner direkt neben dem Namen und Geschwistern in einer eigenen Linkleiste; auf schmalen Bildschirmen ohne seitliches Scrollen gestapelt
 - Eigene Ereignisseiten und eine durchsuchbare Ereignisliste
 - Kompakter Familienbaum mit wählbarer Tiefe (2–5), nach Generationen geordneten Vorfahren und Nachkommen sowie aufklappbaren, semantisch verschachtelten Familienlinien; dazu kürzester Verbindungsweg zwischen zwei Personen
 - Lebensereignisse mit vorhandenen GEDCOM-Quellenverweisen und Seitenangaben
