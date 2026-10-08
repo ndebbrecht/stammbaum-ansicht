@@ -4,15 +4,16 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 
 
 SCHEMA = """
-CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, given_name TEXT, surname TEXT, sex TEXT);
+CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, given_name TEXT, surname TEXT, sex TEXT, is_start INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE families (id TEXT PRIMARY KEY, husband_id TEXT, wife_id TEXT);
 CREATE TABLE children (family_id TEXT NOT NULL, person_id TEXT NOT NULL, PRIMARY KEY (family_id, person_id));
-CREATE TABLE facts (id INTEGER PRIMARY KEY, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT, date_text TEXT, place TEXT);
+CREATE TABLE facts (id INTEGER PRIMARY KEY, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT, date_text TEXT, place TEXT, latitude REAL, longitude REAL);
 CREATE TABLE sources (id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT, publication TEXT, notes TEXT);
 CREATE TABLE citations (fact_id INTEGER NOT NULL, source_id TEXT NOT NULL, page TEXT, detail TEXT);
 CREATE TABLE record_citations (owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, source_id TEXT NOT NULL, page TEXT);
@@ -106,9 +107,15 @@ def records(path):
 
 
 def add_fact(database, owner_type, owner_id, kind, node):
+    place = node.first("PLAC")
+    mapping = place.first("MAP") if place else None
+    latitude = coordinate(mapping.text("LATI"), "NS", 90) if mapping else None
+    longitude = coordinate(mapping.text("LONG"), "EW", 180) if mapping else None
+    if latitude is None or longitude is None:
+        latitude = longitude = None
     database.execute(
-        "INSERT INTO facts(owner_type,owner_id,kind,value,date_text,place) VALUES (?,?,?,?,?,?)",
-        (owner_type, owner_id, FACT_NAMES[kind], node.value, node.text("DATE"), node.text("PLAC")),
+        "INSERT INTO facts(owner_type,owner_id,kind,value,date_text,place,latitude,longitude) VALUES (?,?,?,?,?,?,?,?)",
+        (owner_type, owner_id, FACT_NAMES[kind], node.value, node.text("DATE"), node.text("PLAC"), latitude, longitude),
     )
     fact_id = database.execute("SELECT last_insert_rowid()").fetchone()[0]
     for citation in node.all("SOUR"):
@@ -119,6 +126,15 @@ def add_fact(database, owner_type, owner_id, kind, node):
             )
     add_media_links(database, "fact", str(fact_id), node)
     add_note_links(database, "fact", str(fact_id), node)
+
+
+def coordinate(value, directions, limit):
+    if not re.fullmatch(rf"[{directions}]\d+(?:\.\d+)?", value):
+        return None
+    number = float(value[1:])
+    if number > limit:
+        return None
+    return -number if value[0] == directions[1] else number
 
 
 def add_note_links(database, owner_type, owner_id, node):
@@ -156,9 +172,9 @@ def import_gedcom(database, path):
             raw_name = name_node.value if name_node else ""
             name = raw_name.replace("/", "").strip() or "Unbekannte Person"
             database.execute(
-                "INSERT INTO people VALUES (?,?,?,?,?)",
+                "INSERT INTO people VALUES (?,?,?,?,?,?)",
                 (record_id, name, name_node.text("GIVN") if name_node else "",
-                 name_node.text("SURN") if name_node else "", record.text("SEX")),
+                 name_node.text("SURN") if name_node else "", record.text("SEX"), int(record.first("_STP") is not None)),
             )
             for node in record.children:
                 if node.tag in FACT_NAMES:

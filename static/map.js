@@ -9,7 +9,7 @@ document.querySelectorAll(".load-map").forEach((button) => {
 
     const frame = document.createElement("iframe");
     frame.src = url.toString();
-    frame.title = `Karte zu ${button.dataset.mapQuery}`;
+    frame.title = `Karte zu ${button.dataset.mapLabel}`;
     frame.referrerPolicy = "no-referrer";
     frame.setAttribute("allowfullscreen", "");
     container.append(frame);

@@ -106,6 +106,8 @@ def overview(connection, query, featured_person_id=None, media_root=None, place=
                                 + " ORDER BY people.name LIMIT ?", (*values, 100 if filtered else 50)).fetchall()
     count = connection.execute("SELECT COUNT(*) FROM people").fetchone()[0]
     featured = connection.execute("SELECT * FROM people WHERE id=?", (featured_person_id,)).fetchone() if featured_person_id else None
+    if not featured and not featured_person_id:
+        featured = connection.execute("SELECT * FROM people WHERE is_start=1 ORDER BY id LIMIT 1").fetchone()
     featured_html = ""
     if featured:
         featured_media = portrait_figure(featured, person_image(connection, featured["id"], media_root), "media-card")
@@ -576,7 +578,9 @@ def event_page(connection, fact_id, media_root=None):
     fact = connection.execute("SELECT * FROM facts WHERE id=?", (fact_id,)).fetchone()
     if not fact:
         return None
-    map_query = ", ".join(place_parts(fact["place"] or ""))[:500]
+    place_label = ", ".join(place_parts(fact["place"] or ""))[:500]
+    has_coordinates = fact["latitude"] is not None and fact["longitude"] is not None
+    map_query = (f'{fact["latitude"]:.6f},{fact["longitude"]:.6f}' if has_coordinates else place_label)
     fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")), ("Angabe", fact["value"])]
     details = "".join(f'<dt>{label}</dt><dd>{escape(value)}'
                       + ('<br><a href="#map">Karte zum Ort ansehen ↓</a>' if label == "Ort" and map_query else '')
@@ -585,8 +589,9 @@ def event_page(connection, fact_id, media_root=None):
     media = media_for(connection, "fact", str(fact_id), media_root)
     map_section = (f'<section class="panel event-map" id="map" aria-labelledby="map-title"><h2 id="map-title">Karte zum Ort</h2>'
                    f'<p class="map-place">{escape(format_place(fact["place"]))}</p>'
-                   f'<p>Die Karte wird erst auf Wunsch geladen. Dabei wird der Ort an Google Maps übermittelt.</p>'
-                   f'<button type="button" class="load-map" data-map-query="{escape(map_query, quote=True)}">Karte laden</button>'
+                   + ('<p>Koordinaten aus dem GEDCOM; ihre Genauigkeit ist nicht geprüft.</p>' if has_coordinates else '<p>Keine Koordinaten im GEDCOM; die Karte sucht nach dem Ortsnamen.</p>')
+                   + '<p>Die Karte wird erst auf Wunsch geladen. Dabei werden die Ortsdaten an Google Maps übermittelt.</p>'
+                   f'<button type="button" class="load-map" data-map-query="{escape(map_query, quote=True)}" data-map-label="{escape(place_label, quote=True)}">Karte laden</button>'
                    f'<div class="map-container"></div>'
                    f'</section><script src="/static/map.js" defer></script>') if map_query else ""
     content = f'''<div class="event-detail"><p class="back">{link('← Zu den Ereignissen', '/events')}</p>

@@ -50,7 +50,7 @@ Tailscale geschützt; ohne aktivierten Passwortschutz kann jedes Gerät mit
 Zugriff auf dieses Netzwerk die privaten Daten lesen. Für fremde oder geteilte
 Netze daher den optionalen Passwortschutz und HTTPS über einen Reverse-Proxy
 verwenden. Keine Router-Portweiterleitung für diesen HTTP-Port einrichten.
-`FEATURED_PERSON_ID` setzt die Startperson. Die Datenbank liegt in einem
+`FEATURED_PERSON_ID` überschreibt die im GEDCOM mit `_STP` markierte Startperson. Die Datenbank liegt in einem
 benannten Docker-Volume; `restart: unless-stopped` sorgt für Wiederanlauf.
 Auf macOS muss zusätzlich Docker Desktop beim Anmelden gestartet werden; die
 Compose-Neustartregel allein startet Docker Desktop nicht.
@@ -134,7 +134,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Personensuche nach Name, Ereignisort, Ereignisjahr und vorhandenem oder fehlendem GEDCOM-Quellenverweis
 - Personenseiten mit seitlichen Eltern- und Kinderkacheln, Partner direkt neben dem Namen und Geschwistern in eigenen, anklickbaren Kacheln; auf schmalen Bildschirmen ohne seitliches Scrollen gestapelt
 - Verfügbare Personenbilder als Profilbild und kleine Vorschau bei Eltern, Kindern, Geschwistern und Partnern; Quellen in Übersichten nur als Büroklammer-Link, ausgeschriebene Angaben auf der Ereignis- bzw. Quellenseite
-- Eigene Ereignisseiten und eine durchsuchbare Ereignisliste; Ortsangaben kürzen Bundesländer und Länder ab (z. B. NI, DE). Karten erscheinen als eingebettete Kachel auf der Ereignisseite, werden nur nach Klick geladen und übermitteln dann den vollständigen Ereignisort an Google Maps.
+- Eigene Ereignisseiten und eine durchsuchbare Ereignisliste; Ortsangaben kürzen Bundesländer und Länder ab (z. B. NI, DE). Ereigniskoordinaten aus `PLAC/MAP/LATI/LONG` werden importiert und für die eingebettete Karte verwendet; ohne Koordinaten bleibt die Ortssuche. Google Maps lädt erst nach Klick.
 - Kompakter Familienbaum mit wählbarer Tiefe (2–5), nach Generationen geordneten Vorfahren und Nachkommen sowie aufklappbaren, semantisch verschachtelten Familienlinien; dazu kürzester Verbindungsweg zwischen zwei Personen
 - Ereignisdetails mit GEDCOM-Quellenverweis, Belegstelle und getrenntem Scanstatus. Ein einzelner Scan der Quelle wird verlinkt; bei mehreren Dateien ohne passende Seitenzuordnung wird keine ereignisspezifische Datei behauptet.
 - Import und Anzeige von GEDCOM-Notizen, Repositorien, weiteren Beziehungen sowie zusätzlichen Ereignistypen wie Einwanderung und Adoption
@@ -142,7 +142,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Verknüpfte Bilder und Dokumente aus GEDCOM-Medienobjekten
 - Automatischer Hell-/Dunkelmodus gemäß Geräteeinstellung
 - Reduziertes Archivdesign mit klaren Datenbereichen, sichtbaren Tastaturfokussen und responsiver Darstellung ohne seitliches Scrollen
-- Dauerhafte Startperson per privater Serveroption
+- Startperson aus dem GEDCOM-Merkmal `_STP` oder per privater Serveroption
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
 - Getrennte Kennzeichnung fehlender formaler Quellenverweise, angehängter Medien und offener Original-Zuordnungen
 - Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen

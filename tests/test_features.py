@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, events_page, family_graph, format_place, person_page, source_page, tree_page
+from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, events_page, family_graph, format_place, overview, person_page, source_page, tree_page
 from auth import hash_password, verify_password
 from export_archive_index import export
 from import_data import build
@@ -18,6 +18,41 @@ EXAMPLE = Path(__file__).parents[1] / "examples" / "beispiel.ged"
 
 
 class FeatureTest(unittest.TestCase):
+    def test_exported_start_person_and_coordinates(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Ada /Beispiel/
+1 _STP
+1 BIRT
+2 PLAC Musterstadt
+3 MAP
+4 LATI N52.123456
+4 LONG W7.123456
+0 @I2@ INDI
+1 NAME Ben /Beispiel/
+1 BIRT
+2 PLAC Anderstadt
+3 MAP
+4 LATI N999
+4 LONG E7
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                self.assertIn('id="featured-title">Ada Beispiel', overview(connection, ""))
+                self.assertEqual(tuple(connection.execute("SELECT latitude, longitude FROM facts WHERE id=1").fetchone()),
+                                 (52.123456, -7.123456))
+                event = event_page(connection, 1)
+                self.assertIn('data-map-query="52.123456,-7.123456"', event)
+                self.assertIn('data-map-label="Musterstadt"', event)
+                self.assertIn("Koordinaten aus dem GEDCOM", event)
+                self.assertNotIn("<iframe", event)
+                self.assertIsNone(connection.execute("SELECT latitude FROM facts WHERE id=2").fetchone()[0])
+                self.assertIn('data-map-query="Anderstadt"', event_page(connection, 2))
+
     def test_place_abbreviations_and_opt_in_event_map(self):
         self.assertEqual(format_place("Bad Iburg,,Landkreis Osnabrück,,Niedersachsen,Deutschland"),
                          "Bad Iburg, Landkreis Osnabrück, NI, DE")
