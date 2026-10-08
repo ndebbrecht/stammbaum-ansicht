@@ -30,6 +30,10 @@ CREATE TABLE repositories (id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT
 CREATE TABLE source_repositories (source_id TEXT NOT NULL, repository_id TEXT NOT NULL,
     call_number TEXT, PRIMARY KEY (source_id, repository_id));
 CREATE TABLE associations (person_id TEXT NOT NULL, other_person_id TEXT NOT NULL, relation TEXT);
+CREATE TABLE export_records (id INTEGER PRIMARY KEY, xref TEXT, tag TEXT NOT NULL, value TEXT NOT NULL, raw_text TEXT NOT NULL);
+CREATE TABLE places (record_id INTEGER PRIMARY KEY, name TEXT NOT NULL, latitude REAL, longitude REAL, alternate_names TEXT NOT NULL, geo TEXT, format_id TEXT);
+CREATE TABLE labels (id TEXT PRIMARY KEY, title TEXT NOT NULL, color TEXT);
+CREATE TABLE person_labels (person_id TEXT NOT NULL, label_id TEXT NOT NULL, PRIMARY KEY (person_id, label_id));
 CREATE INDEX facts_owner ON facts(owner_type, owner_id);
 CREATE INDEX citations_fact ON citations(fact_id);
 CREATE INDEX media_links_owner ON media_links(owner_type, owner_id);
@@ -38,6 +42,9 @@ CREATE INDEX archive_files_size ON archive_files(size_bytes);
 CREATE INDEX source_archive_links_source ON source_archive_links(source_id);
 CREATE INDEX note_links_owner ON note_links(owner_type, owner_id);
 CREATE INDEX associations_person ON associations(person_id);
+CREATE INDEX export_records_tag ON export_records(tag);
+CREATE INDEX export_records_xref ON export_records(xref);
+CREATE INDEX places_name ON places(name);
 """
 
 FACT_NAMES = {
@@ -86,10 +93,9 @@ def records(path):
                     yield current
                 if len(pieces) == 3 and pieces[1].startswith("@"):
                     current = (pieces[1].strip("@"), Node(pieces[2]))
-                    stack = [current[1]]
                 else:
-                    current = None
-                    stack = []
+                    current = (None, Node(pieces[1], pieces[2] if len(pieces) > 2 else ""))
+                stack = [current[1]]
                 continue
             if not current or level > len(stack):
                 continue
@@ -186,6 +192,10 @@ def import_gedcom(database, path):
                 if association.value.startswith("@") and association.value.endswith("@"):
                     database.execute("INSERT INTO associations VALUES (?,?,?)",
                                      (record_id, association.value.strip("@"), association.text("RELA")))
+            for label in record.all("LABL"):
+                if label.value.startswith("@") and label.value.endswith("@"):
+                    database.execute("INSERT OR IGNORE INTO person_labels VALUES (?,?)",
+                                     (record_id, label.value.strip("@")))
         elif record.tag == "FAM":
             database.execute(
                 "INSERT INTO families VALUES (?,?,?)",
@@ -226,6 +236,47 @@ def import_gedcom(database, path):
         elif record.tag == "REPO":
             database.execute("INSERT INTO repositories VALUES (?,?,?)",
                              (record_id, record.text("NAME") or f"Archiv {record_id}", record.text("ADDR")))
+        elif record.tag == "LABL":
+            database.execute("INSERT INTO labels VALUES (?,?,?)",
+                             (record_id, record.text("TITL") or f"Kennzeichnung {record_id}", record.text("COLR")))
+
+
+def import_export_records(database, path):
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as source:
+        current = []
+        for line in source:
+            if line.startswith("0 ") and current:
+                add_export_record(database, current)
+                current = []
+            current.append(line)
+        if current:
+            add_export_record(database, current)
+    place_rows = iter(database.execute("SELECT id, value FROM export_records WHERE tag='_PLAC' ORDER BY id").fetchall())
+    for record_id, record in records(path):
+        if record.tag != "_PLAC":
+            continue
+        raw = next(place_rows)
+        if raw[1] != record.value:
+            raise ValueError("Place records are not aligned with the export")
+        mapping = record.first("MAP")
+        latitude = coordinate(mapping.text("LATI"), "NS", 90) if mapping else None
+        longitude = coordinate(mapping.text("LONG"), "EW", 180) if mapping else None
+        if latitude is None or longitude is None:
+            latitude = longitude = None
+        database.execute("INSERT INTO places VALUES (?,?,?,?,?,?,?)",
+                         (raw[0], record.value, latitude, longitude,
+                          json.dumps([node.value for node in record.all("_ALT")], ensure_ascii=False),
+                          record.text("_GEO"), record.text("_PTE").strip("@")))
+
+
+def add_export_record(database, lines):
+    first = lines[0].rstrip("\r\n").split(" ", 2)
+    if len(first) > 2 and first[1].startswith("@"):
+        xref, tag, value = first[1].strip("@"), first[2].split(" ", 1)[0], ""
+    else:
+        xref, tag, value = None, first[1], first[2] if len(first) > 2 else ""
+    database.execute("INSERT INTO export_records(xref,tag,value,raw_text) VALUES (?,?,?,?)",
+                     (xref, tag, value, "".join(lines)))
 
 
 def index_archive(database, archive_root):
@@ -348,6 +399,7 @@ def build(gedcom_path, database_path, archive_root=None, source_links_path=None,
         try:
             database.executescript(SCHEMA)
             import_gedcom(database, gedcom_path)
+            import_export_records(database, gedcom_path)
             if archive_index_path:
                 import_archive_index(database, archive_index_path)
             elif archive_root:
@@ -357,7 +409,7 @@ def build(gedcom_path, database_path, archive_root=None, source_links_path=None,
                 import_source_links(database, source_links_path)
             database.commit()
             counts = {table: database.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                      for table in ("people", "families", "sources", "facts", "citations", "media", "media_links", "archive_files", "source_archive_links")}
+                      for table in ("people", "families", "sources", "facts", "citations", "media", "media_links", "archive_files", "source_archive_links", "export_records", "places", "labels", "person_labels")}
         finally:
             database.close()
         temporary_path.chmod(0o600)

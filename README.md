@@ -143,6 +143,8 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Automatischer Hell-/Dunkelmodus gemäß Geräteeinstellung
 - Reduziertes Archivdesign mit klaren Datenbereichen, sichtbaren Tastaturfokussen und responsiver Darstellung ohne seitliches Scrollen
 - Startperson aus dem GEDCOM-Merkmal `_STP` oder per privater Serveroption
+- Durchsuchbare Originaldatenansicht für jeden GEDCOM-Datensatz einschließlich `HEAD`, `_PLAC`, MacFamilyTree-Erweiterungen und bislang fachlich nicht interpretierter Felder; der Import bewahrt die ursprünglichen Zeilen pro Datensatz.
+- Ortsverzeichnis mit allen eigenständigen `_PLAC`-Datensätzen, alternativen Namen, Koordinaten und verknüpften Ereignissen; Personenkennzeichnungen aus `LABL` erscheinen im Profil.
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
 - Getrennte Kennzeichnung fehlender formaler Quellenverweise, angehängter Medien und offener Original-Zuordnungen
 - Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen
@@ -155,8 +157,8 @@ eine neue Ausgangsperson. Generationskarten ordnen sich auf schmalen
 Bildschirmen neu an, ohne seitliches Scrollen zu erfordern; die einzelnen Namen
 bleiben per Tastatur erreichbar. Die aufklappbare Familienliste zeigt die
 genauen Verzweigungen, die kompakten Generationskarten nur die Ebene.
-Der Import bildet nicht alle GEDCOM-Erweiterungen ab; insbesondere proprietäre
-MacFamilyTree-Felder werden noch nicht vollständig interpretiert. Orts- und
+Die Fachansichten interpretieren noch nicht alle GEDCOM-Erweiterungen; ihre
+Originaldaten bleiben über „Exportdaten“ lesbar. Orts- und
 Jahresfilter suchen in den textuellen Ereignisangaben, nicht in normierten
 Kalenderdaten. Ein angehängtes Dokument ist nicht automatisch ein formaler
 GEDCOM-Quellenverweis.

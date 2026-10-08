@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, events_page, family_graph, format_place, overview, person_page, source_page, tree_page
+from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, events_page, export_page, export_record_page, family_graph, format_place, overview, person_page, place_page, places_page, source_page, tree_page
 from auth import hash_password, verify_password
 from export_archive_index import export
 from import_data import build
@@ -18,6 +18,43 @@ EXAMPLE = Path(__file__).parents[1] / "examples" / "beispiel.ged"
 
 
 class FeatureTest(unittest.TestCase):
+    def test_all_export_records_remain_readable(self):
+        gedcom = """0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Ada /Beispiel/
+1 LABL @L1@
+1 _UNSUPPORTED Beispielwert
+1 BIRT
+2 PLAC Musterstadt
+0 _PLAC Musterstadt
+1 _ALT Altstadt
+1 MAP
+2 LATI N52.123456
+2 LONG E7.123456
+0 _PLAC Musterstadt
+1 _GEO Beispielsweise
+0 @L1@ LABL
+1 TITL Forschungsfall
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            counts = build(root / "family.ged", database_path)
+            self.assertEqual((counts["export_records"], counts["places"], counts["labels"], counts["person_labels"]),
+                             (6, 2, 1, 1))
+            with database(database_path) as connection:
+                reconstructed = ''.join(row[0] for row in connection.execute("SELECT raw_text FROM export_records ORDER BY id"))
+                self.assertEqual(reconstructed, gedcom)
+                self.assertIn("_UNSUPPORTED Beispielwert", export_record_page(connection, 2))
+                self.assertIn("HEAD", export_page(connection, "", "", 1))
+                self.assertIn("Musterstadt", places_page(connection, "", 1))
+                self.assertIn("Altstadt", place_page(connection, 3))
+                self.assertIn("Forschungsfall", person_page(connection, "I1"))
+                self.assertIn("Ortsdatensatz", event_page(connection, 1))
+
     def test_exported_start_person_and_coordinates(self):
         gedcom = """0 @I1@ INDI
 1 NAME Ada /Beispiel/

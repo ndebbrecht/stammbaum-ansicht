@@ -71,7 +71,7 @@ def layout(title, content):
 <title>{escape(title)} · Stammbaum</title><meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/static/style.css"></head>
 <body><a class="skip" href="#inhalt">Zum Inhalt springen</a>
 <header class="site-header"><div class="shell header-inner"><a class="brand" href="/">Stammbaum</a><nav aria-label="Hauptnavigation">
-<a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/sources">Quellen</a><a href="/archive">Archiv</a></nav></div></header>
+<a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/places">Orte</a><a href="/sources">Quellen</a><a href="/archive">Archiv</a><a href="/export">Exportdaten</a></nav></div></header>
 <main id="inhalt" class="shell" tabindex="-1">{content}</main>
 <footer class="shell">Private Leseansicht · Angaben aus dem GEDCOM sind nicht automatisch geprüft. · Darstellung folgt dem Hell-/Dunkelmodus des Geräts.</footer></body></html>'''
 
@@ -80,6 +80,102 @@ def database(path):
     connection = sqlite3.connect(f"file:{quote(str(path))}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def original_record_link(connection, xref):
+    record = connection.execute("SELECT id FROM export_records WHERE xref=? ORDER BY id LIMIT 1", (xref,)).fetchone()
+    return link("Originaldaten ansehen", f'/export-record/{record["id"]}') if record else ""
+
+
+def export_page(connection, query, tag, page):
+    term = query.strip()[:100]
+    tag = tag.strip()[:20]
+    page = min(max(page, 1), 10000)
+    types = connection.execute("SELECT tag, COUNT(*) AS count FROM export_records GROUP BY tag ORDER BY tag").fetchall()
+    if tag not in {item["tag"] for item in types}:
+        tag = ""
+    condition = "WHERE raw_text LIKE ?" + (" AND tag=?" if tag else "")
+    values = (f"%{term}%",) + ((tag,) if tag else ())
+    count = connection.execute(f"SELECT COUNT(*) FROM export_records {condition}", values).fetchone()[0]
+    rows = connection.execute(f"SELECT id, xref, tag, value FROM export_records {condition} ORDER BY id LIMIT 50 OFFSET ?",
+                              (*values, (page - 1) * 50)).fetchall()
+    type_options = ''.join(f'<option value="{escape(item["tag"], quote=True)}"{" selected" if item["tag"] == tag else ""}>'
+                           f'{escape(item["tag"])} ({item["count"]})</option>' for item in types)
+    entries = [link(f'{row["tag"]} · {row["xref"] or row["value"] or "ohne Kennung"}', f'/export-record/{row["id"]}')
+               for row in rows]
+    previous = link("← Vorherige", f'/export?q={quote(term)}&tag={quote(tag)}&page={page - 1}') if page > 1 else ""
+    following = link("Nächste →", f'/export?q={quote(term)}&tag={quote(tag)}&page={page + 1}') if page * 50 < count else ""
+    content = f'''<h1>Originaldaten des Exports</h1><p>{count} von {sum(item['count'] for item in types)} Datensätzen angezeigt.</p>
+<p>Hier sind auch Felder und MacFamilyTree-Erweiterungen lesbar, für die es noch keine eigene Fachansicht gibt.</p>
+<form class="search panel" action="/export" method="get"><label for="export-search">In Originaldaten suchen</label>
+<input id="export-search" name="q" type="search" value="{escape(term, quote=True)}">
+<label for="export-type">Datensatzart</label><select id="export-type" name="tag"><option value="">Alle</option>{type_options}</select>
+<button>Suchen</button></form><section class="panel"><h2>Datensätze</h2>{list_items(entries)}
+<nav class="pagination" aria-label="Exportseiten">{previous} {following}</nav></section>'''
+    return layout("Exportdaten", content)
+
+
+def export_record_page(connection, record_id):
+    record = connection.execute("SELECT * FROM export_records WHERE id=?", (record_id,)).fetchone()
+    if not record:
+        return None
+    lines = record["raw_text"].splitlines()
+    entries = ''.join(f'<li><code>{escape(line)}</code></li>' for line in lines)
+    related = ""
+    if record["tag"] == "INDI":
+        related = link("Zum Personenprofil", f'/person/{quote(record["xref"])}')
+    elif record["tag"] == "SOUR":
+        related = link("Zur Quellenansicht", f'/source/{quote(record["xref"])}')
+    elif record["tag"] == "_PLAC":
+        related = link("Zur Ortsansicht", f'/place/{record_id}')
+    title = f'{record["tag"]} · {record["xref"] or record["value"] or "ohne Kennung"}'
+    content = f'''<p class="back">{link('← Alle Exportdaten', '/export')}</p><h1>{escape(title)}</h1>
+<p>{len(lines)} Originalzeilen. {related}</p><section class="panel" aria-labelledby="original-lines">
+<h2 id="original-lines">GEDCOM-Datensatz</h2><ol class="gedcom-lines">{entries}</ol></section>'''
+    return layout("Originaldaten", content)
+
+
+def places_page(connection, query, page):
+    term = query.strip()[:100]
+    page = min(max(page, 1), 10000)
+    pattern = f"%{term}%"
+    count = connection.execute("SELECT COUNT(*) FROM places WHERE name LIKE ? OR alternate_names LIKE ?", (pattern, pattern)).fetchone()[0]
+    rows = connection.execute("SELECT record_id, name, latitude FROM places WHERE name LIKE ? OR alternate_names LIKE ? "
+                              "ORDER BY name, record_id LIMIT 50 OFFSET ?", (pattern, pattern, (page - 1) * 50)).fetchall()
+    entries = [link(row["name"], f'/place/{row["record_id"]}') + (" · Koordinaten vorhanden" if row["latitude"] is not None else "")
+               for row in rows]
+    previous = link("← Vorherige", f'/places?q={quote(term)}&page={page - 1}') if page > 1 else ""
+    following = link("Nächste →", f'/places?q={quote(term)}&page={page + 1}') if page * 50 < count else ""
+    content = f'''<h1>Orte</h1><p>{count} Ortsdatensätze im Export.</p>
+<form class="search panel" action="/places" method="get"><label for="place-search">Ort suchen</label>
+<div><input id="place-search" name="q" type="search" value="{escape(term, quote=True)}"><button>Suchen</button></div></form>
+<section class="panel"><h2>Ortsverzeichnis</h2>{list_items(entries)}<nav class="pagination" aria-label="Ortsseiten">{previous} {following}</nav></section>'''
+    return layout("Orte", content)
+
+
+def place_page(connection, record_id):
+    place = connection.execute("SELECT * FROM places WHERE record_id=?", (record_id,)).fetchone()
+    if not place:
+        return None
+    facts = connection.execute("SELECT * FROM facts WHERE place=? ORDER BY id LIMIT 100", (place["name"],)).fetchall()
+    count = connection.execute("SELECT COUNT(*) FROM facts WHERE place=?", (place["name"],)).fetchone()[0]
+    alternate = json.loads(place["alternate_names"])
+    metadata = f'<dt>Alternative Namen</dt><dd>{escape(", ".join(alternate))}</dd>' if alternate else ""
+    if place["geo"]:
+        metadata += f'<dt>Geografische Kennung</dt><dd>{escape(place["geo"])}</dd>'
+    if place["latitude"] is not None:
+        metadata += f'<dt>GEDCOM-Koordinaten</dt><dd>{place["latitude"]:.6f}, {place["longitude"]:.6f}</dd>'
+    event_links = [link(fact["kind"], f'/event/{fact["id"]}') + ' · ' + event_owner(connection, fact) for fact in facts]
+    content = f'''<p class="back">{link('← Zu den Orten', '/places')}</p><h1>{escape(format_place(place['name']))}</h1>
+<p>{original_record_link_by_id(record_id)} · {count} verknüpfte Ereignisse.</p>
+<section class="panel"><h2>Ortsangaben</h2><dl>{metadata or '<dt>Weitere Angaben</dt><dd>Keine im Export.</dd>'}</dl></section>
+<section class="panel"><h2>Ereignisse an diesem Ort</h2>{list_items(event_links)}
+{f'<p>Es werden die ersten 100 Ereignisse angezeigt. {link("Weitere Ereignisse suchen", "/events?q=" + quote(place["name"]))}</p>' if count > 100 else ''}</section>'''
+    return layout(place["name"], content)
+
+
+def original_record_link_by_id(record_id):
+    return link("Originaldaten ansehen", f'/export-record/{record_id}')
 
 
 def overview(connection, query, featured_person_id=None, media_root=None, place="", year="", evidence=""):
@@ -280,6 +376,9 @@ def person_page(connection, person_id, media_root=None):
     person = connection.execute("SELECT * FROM people WHERE id=?", (person_id,)).fetchone()
     if not person:
         return None
+    labels = connection.execute("SELECT labels.title FROM person_labels JOIN labels ON labels.id=person_labels.label_id "
+                                "WHERE person_labels.person_id=? ORDER BY labels.title", (person_id,)).fetchall()
+    label_html = f'<p>Kennzeichnungen: {escape(", ".join(item["title"] for item in labels))}</p>' if labels else ''
     parent_families = connection.execute(
         "SELECT families.* FROM families JOIN children ON children.family_id=families.id WHERE children.person_id=?",
         (person_id,),
@@ -359,7 +458,8 @@ def person_page(connection, person_id, media_root=None):
 <div class="person-content"><p class="back">{link('← Zur Startseite', '/')}</p>
 <section class="person-hero{' has-portrait' if images[person_id] else ''}"><div class="profile-summary"><div><p class="eyebrow">Personenprofil</p><div class="person-heading"><h1>{escape(person["name"])}</h1>
 {f'<div class="partner-actions">{partner_links}</div>' if partner_links else ''}</div>
-<p>Lebensereignisse, Quellen und Medien aus dem importierten GEDCOM.</p></div>
+<p>Lebensereignisse, Quellen und Medien aus dem importierten GEDCOM.</p>{label_html}
+<p>{original_record_link(connection, person_id)}</p></div>
 {portrait_figure(person, images[person_id], "profile-portrait")}</div></section>
 {sibling_section}
 <nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#relations">Beziehungen</a></nav>
@@ -582,7 +682,11 @@ def event_page(connection, fact_id, media_root=None):
     has_coordinates = fact["latitude"] is not None and fact["longitude"] is not None
     map_query = (f'{fact["latitude"]:.6f},{fact["longitude"]:.6f}' if has_coordinates else place_label)
     fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")), ("Angabe", fact["value"])]
+    place_record = connection.execute("SELECT record_id FROM places WHERE name=? ORDER BY record_id LIMIT 1",
+                                      (fact["place"],)).fetchone() if fact["place"] else None
     details = "".join(f'<dt>{label}</dt><dd>{escape(value)}'
+                      + (f' · {link("Ortsdatensatz", "/place/" + str(place_record["record_id"]))}'
+                         if label == "Ort" and place_record else '')
                       + ('<br><a href="#map">Karte zum Ort ansehen ↓</a>' if label == "Ort" and map_query else '')
                       + '</dd>' for label, value in fields if value)
     citations = citations_for(connection, "fact", str(fact_id))
@@ -670,7 +774,7 @@ def source_page(connection, source_id, media_root=None):
                         + (" · Signatur: " + escape(item["call_number"]) if item["call_number"] else "")
                         + (" · " + escape(item["address"]) if item["address"] else "") for item in repositories]
     content = f'''<p class="back">{link('← Zu den Quellen', '/sources')}</p><h1>{escape(source['title'])}</h1>
-<p class="muted">GEDCOM-ID: {escape(source_id)} · Archivzuordnungen und ihr Prüfstatus stehen unten.</p>
+<p class="muted">GEDCOM-ID: {escape(source_id)} · Archivzuordnungen und ihr Prüfstatus stehen unten. {original_record_link(connection, source_id)}</p>
 <section class="panel"><h2>Quellenangaben</h2><dl>{metadata or '<dt>Metadaten</dt><dd>Keine weiteren Angaben im GEDCOM.</dd>'}</dl></section>
 <section class="panel"><h2>Archiv oder Repositorium</h2>{list_items(repository_items)}</section>
 <section class="panel"><h2>Quellennotizen</h2>{notes_html(connection, "source", source_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
@@ -832,6 +936,15 @@ class Handler(BaseHTTPRequestHandler):
                                     parameters.get("evidence", [""])[0])
                 elif route == "/sources":
                     body = sources_page(connection, parameters.get("q", [""])[0])
+                elif route in ("/export", "/places"):
+                    try:
+                        page = int(parameters.get("page", ["1"])[0])
+                    except ValueError:
+                        page = 1
+                    if route == "/export":
+                        body = export_page(connection, parameters.get("q", [""])[0], parameters.get("tag", [""])[0], page)
+                    else:
+                        body = places_page(connection, parameters.get("q", [""])[0], page)
                 elif route == "/events":
                     try:
                         page = int(parameters.get("page", ["1"])[0])
@@ -849,6 +962,10 @@ class Handler(BaseHTTPRequestHandler):
                     body = archive_page(connection, parameters.get("q", [""])[0], page)
                 elif re.fullmatch(r"/person/[A-Za-z0-9_-]+", route):
                     body = person_page(connection, route.rsplit("/", 1)[1], self.media_root)
+                elif re.fullmatch(r"/export-record/[0-9]+", route):
+                    body = export_record_page(connection, int(route.rsplit("/", 1)[1]))
+                elif re.fullmatch(r"/place/[0-9]+", route):
+                    body = place_page(connection, int(route.rsplit("/", 1)[1]))
                 elif re.fullmatch(r"/tree/[A-Za-z0-9_-]+", route):
                     try:
                         depth = int(parameters.get("depth", ["3"])[0])

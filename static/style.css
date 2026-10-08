@@ -118,6 +118,9 @@ li { margin-block: .45rem; }
 .citation-clips { display: flex; flex-wrap: wrap; gap: .35rem; }
 .citation-clip { display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; min-height: 2rem; padding: .2rem; color: var(--accent); font-size: 1.1rem; text-decoration: none; }
 .citation-clip:hover { background: var(--soft); }
+.gedcom-lines { padding-left: 3rem; overflow-wrap: anywhere; }
+.gedcom-lines li { padding: .2rem .5rem; border-bottom: 1px solid var(--border); }
+.gedcom-lines code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .panel > .source-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: .8rem; columns: initial; padding: 0; list-style: none; }
 .panel > .source-cards li { min-width: 0; margin: 0; padding: 0; border: 0; }
 .source-card { height: 100%; padding: 1rem; border: 1px solid var(--border); background: var(--soft); overflow-wrap: anywhere; }
