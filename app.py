@@ -499,6 +499,17 @@ def notes_html(connection, owner_type, owner_id):
     return list_items(entries) if entries else ""
 
 
+def fact_fields(fact):
+    fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")),
+              ("Genauer Ort", fact["address"])]
+    value = fact["value"] or ""
+    if fact["kind"] == "Heirat" and re.match(r"^Trauzeugen?:\s*", value, flags=re.IGNORECASE):
+        fields.append(("Trauzeugen", value.split(":", 1)[1].strip()))
+    else:
+        fields.append(("Angabe", value))
+    return fields
+
+
 def facts_html(connection, owner_type, owner_id, media_root=None):
     facts = connection.execute(
         "SELECT * FROM facts WHERE owner_type=? AND owner_id=? ORDER BY id", (owner_type, owner_id)
@@ -508,9 +519,8 @@ def facts_html(connection, owner_type, owner_id, media_root=None):
     entries = []
     for fact in facts:
         citations = citations_for(connection, "fact", str(fact["id"]))
-        fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")),
-                  ("Genauer Ort", fact["address"]), ("Angabe", fact["value"])]
-        details = ''.join(f'<div><dt>{label}</dt><dd>{escape(value)}</dd></div>' for label, value in fields if value)
+        details = ''.join(f'<div><dt>{label}</dt><dd>{escape(value)}</dd></div>'
+                          for label, value in fact_fields(fact) if value)
         details = f'<dl class="fact-meta">{details}</dl>' if details else '<p>Ohne weitere Angabe</p>'
         media = media_for(connection, "fact", str(fact["id"]), media_root)
         notes = notes_html(connection, "fact", str(fact["id"]))
@@ -834,8 +844,7 @@ def event_page(connection, fact_id, media_root=None):
     place_label = ", ".join(place_parts(fact["place"] or ""))[:500]
     has_coordinates = fact["latitude"] is not None and fact["longitude"] is not None
     map_query = (f'{fact["latitude"]:.6f},{fact["longitude"]:.6f}' if has_coordinates else place_label)
-    fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")),
-              ("Genauer Ort", fact["address"]), ("Angabe", fact["value"])]
+    fields = fact_fields(fact)
     place_record = connection.execute("SELECT record_id FROM places WHERE name=? ORDER BY record_id LIMIT 1",
                                       (fact["place"],)).fetchone() if fact["place"] else None
     details = "".join(f'<dt>{label}</dt><dd>{escape(value)}'

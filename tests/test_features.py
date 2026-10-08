@@ -303,6 +303,32 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn("Genauer Ort", event)
                 self.assertIn("Musterklinik", event)
 
+    def test_wedding_witnesses_remain_labeled_text_without_guessed_person_links(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Ada /Beispiel/
+0 @I2@ INDI
+1 NAME Ben /Beispiel/
+0 @I3@ INDI
+1 NAME Clara /Beispiel/
+0 @F1@ FAM
+1 WIFE @I1@
+1 HUSB @I2@
+1 MARR Trauzeugen: Clara Beispiel
+2 DATE 1 JAN 2000
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                profile = person_page(connection, "I1")
+                event = event_page(connection, 1)
+                self.assertIn("<dt>Trauzeugen</dt><dd>Clara Beispiel</dd>", profile)
+                self.assertIn("<dt>Trauzeugen</dt><dd>Clara Beispiel</dd>", event)
+                self.assertNotIn('href="/person/I3"', profile)
+
     def test_multigeneration_tree_respects_depth_and_family_branches(self):
         gedcom = """0 @I1@ INDI
 1 NAME Alma /Beispiel/
