@@ -1,0 +1,4 @@
+services:
+  stammbaum:
+    ports:
+      - "${LAN_ADDRESS:?Set LAN_ADDRESS to the Mac LAN address}:${PORT:-8765}:8765"

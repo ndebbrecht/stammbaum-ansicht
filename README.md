@@ -35,6 +35,21 @@ Repositorys. Der Import läuft bei **jedem Containerstart** und ersetzt die
 private SQLite-Datenbank erst nach erfolgreichem Import. Die Originale werden
 nur lesend eingebunden. `PORT` ist standardmäßig 8765 und wird aus
 Sicherheitsgründen nur auf `127.0.0.1` des Docker-Hosts veröffentlicht.
+Für Zugriff im vertrauenswürdigen lokalen Netzwerk kann zusätzlich
+`compose.lan.yaml` verwendet werden. `LAN_ADDRESS` ist die lokale IPv4-Adresse
+des Docker-Hosts; der Loopback-Zugriff bleibt dabei erhalten:
+
+```sh
+LAN_ADDRESS=192.0.2.10 docker compose -f compose.yaml -f compose.lan.yaml up --build -d
+```
+
+Die Beispieladresse muss durch die eigene LAN-Adresse ersetzt werden. Im
+Browser eines anderen Geräts im selben Netzwerk dann
+`http://LAN_ADDRESS:PORT/` öffnen. Die LAN-Freigabe ist **nicht** durch
+Tailscale geschützt; ohne aktivierten Passwortschutz kann jedes Gerät mit
+Zugriff auf dieses Netzwerk die privaten Daten lesen. Für fremde oder geteilte
+Netze daher den optionalen Passwortschutz und HTTPS über einen Reverse-Proxy
+verwenden. Keine Router-Portweiterleitung für diesen HTTP-Port einrichten.
 `FEATURED_PERSON_ID` setzt die Startperson. Die Datenbank liegt in einem
 benannten Docker-Volume; `restart: unless-stopped` sorgt für Wiederanlauf.
 Auf macOS muss zusätzlich Docker Desktop beim Anmelden gestartet werden; die
