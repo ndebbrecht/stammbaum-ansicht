@@ -149,6 +149,8 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
 - Getrennte Kennzeichnung fehlender formaler Quellenverweise, angehängter Medien und offener Original-Zuordnungen
 - Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen
+- Barrierearm lesbare Berichte: Bestandsstatistik mit Ereignis- und Nachnamensverteilung, monatliche Jahrestage nur aus exakten GEDCOM-Daten sowie ein durchsuchbares Familienverzeichnis
+- Eigene Familienansichten mit Partnern, Kindern, Familienereignissen, Medien, Notizen und direkten Quellenverweisen; von den Personenprofilen aus erreichbar
 
 Noch nicht enthalten: Bearbeitung und GEDCOM-Export. Die Baumansicht zeigt
 jeweils bis zu fünf Generationen um eine Ausgangsperson, keinen vollständigen
@@ -163,3 +165,7 @@ Originaldaten bleiben über „Exportdaten“ lesbar. Orts- und
 Jahresfilter suchen in den textuellen Ereignisangaben, nicht in normierten
 Kalenderdaten. Ein angehängtes Dokument ist nicht automatisch ein formaler
 GEDCOM-Quellenverweis.
+Die Leseansichten decken noch nicht alle Diagramme, Berichte, Statistik- und
+Filtermöglichkeiten von MacFamilyTree 11 oder webtrees ab. Die App behauptet
+keine vollständige Funktionsparität; zusätzliche Ansichten werden anhand der
+vorhandenen GEDCOM-Daten aufgebaut, ohne nicht exportierte Daten zu erfinden.

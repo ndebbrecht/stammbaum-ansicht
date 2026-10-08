@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, events_page, export_page, export_record_page, family_graph, format_place, media_page, overview, person_page, place_page, places_page, source_page, tree_page
+from app import Handler, anniversaries_page, archive_file_page, archive_page, connection_path, database, event_page, events_page, exact_gedcom_day, export_page, export_record_page, families_page, family_graph, family_page, format_place, media_page, overview, person_page, place_page, places_page, reports_page, source_page, statistics_page, tree_page
 from auth import hash_password, verify_password
 from export_archive_index import export
 from import_data import build
@@ -18,6 +18,51 @@ EXAMPLE = Path(__file__).parents[1] / "examples" / "beispiel.ged"
 
 
 class FeatureTest(unittest.TestCase):
+    def test_read_only_reports_count_records_and_only_exact_anniversaries(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Ada /Beispiel/
+1 BIRT
+2 DATE 3 MAY 1880
+1 DEAT
+2 DATE ABT 3 MAY 1950
+0 @I2@ INDI
+1 NAME Bea /Beispiel/
+1 BIRT
+2 DATE MAY 1882
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 20 MAY 1900
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                self.assertIn('href="/reports/statistics"', reports_page(connection))
+                statistics = statistics_page(connection)
+                self.assertIn('<dt>Personen</dt><dd>2</dd>', statistics)
+                self.assertIn('<dt>Ereignisse</dt><dd>4</dd>', statistics)
+                self.assertIn('href="/?q=Beispiel"', statistics)
+                may = anniversaries_page(connection, 5)
+                self.assertIn("3. Mai", may)
+                self.assertIn("20. Mai", may)
+                self.assertIn("2 Jahrestage", may)
+                self.assertNotIn("ABT 3 MAY", may)
+                self.assertNotIn("MAY 1882", may)
+                self.assertIn('href="/event/4"', may)
+                self.assertIn('href="/family/F1"', families_page(connection, "Beispiel", 1))
+                family = family_page(connection, "F1")
+                self.assertIn('href="/person/I1"', family)
+                self.assertIn('href="/person/I2"', family)
+                self.assertIn('href="/event/4"', family)
+                self.assertIn('href="/family/F1"', person_page(connection, "I1"))
+        self.assertIsNone(exact_gedcom_day("29 FEB 1900"))
+        self.assertIsNone(exact_gedcom_day("BET 1 JAN 1900 AND 2 JAN 1900"))
+
     def test_event_source_and_external_media_details(self):
         gedcom = """0 @I1@ INDI
 1 NAME Ada /Beispiel/

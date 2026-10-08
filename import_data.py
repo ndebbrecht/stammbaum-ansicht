@@ -184,10 +184,15 @@ def import_gedcom(database, path):
             name_node = record.first("NAME")
             raw_name = name_node.value if name_node else ""
             name = raw_name.replace("/", "").strip() or "Unbekannte Person"
+            slash_name = re.fullmatch(r"([^/]*)/([^/]*)/(.*)", raw_name)
+            given_name = name_node.text("GIVN") if name_node else ""
+            surname = name_node.text("SURN") if name_node else ""
+            if slash_name:
+                given_name = given_name or slash_name.group(1).strip()
+                surname = surname or slash_name.group(2).strip()
             database.execute(
                 "INSERT INTO people VALUES (?,?,?,?,?,?)",
-                (record_id, name, name_node.text("GIVN") if name_node else "",
-                 name_node.text("SURN") if name_node else "", record.text("SEX"), int(record.first("_STP") is not None)),
+                (record_id, name, given_name, surname, record.text("SEX"), int(record.first("_STP") is not None)),
             )
             for node in record.children:
                 if node.tag in FACT_NAMES:

@@ -3,6 +3,7 @@ import base64
 import binascii
 from collections import deque
 from contextlib import closing
+from datetime import date
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -102,6 +103,12 @@ EVENT_ICONS = {
     "Adoption": "family", "Volkszählung": "family",
     "Militärische Auszeichnung": "medal",
 }
+GEDCOM_MONTHS = {
+    "JAN": (1, "Januar"), "FEB": (2, "Februar"), "MAR": (3, "März"),
+    "APR": (4, "April"), "MAY": (5, "Mai"), "JUN": (6, "Juni"),
+    "JUL": (7, "Juli"), "AUG": (8, "August"), "SEP": (9, "September"),
+    "OCT": (10, "Oktober"), "NOV": (11, "November"), "DEC": (12, "Dezember"),
+}
 
 
 def icon(name):
@@ -145,7 +152,7 @@ def layout(title, content):
 <title>{escape(title)} · Stammbaum</title><meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/static/style.css"></head>
 <body><a class="skip" href="#inhalt">Zum Inhalt springen</a>
 <header class="site-header"><div class="shell header-inner"><a class="brand" href="/">Stammbaum</a><nav aria-label="Hauptnavigation">
-<a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/places">Orte</a><a href="/sources">Quellen</a><a href="/archive">Archiv</a><a href="/export">Exportdaten</a></nav></div></header>
+<a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/places">Orte</a><a href="/sources">Quellen</a><a href="/reports">Berichte</a><a href="/archive">Archiv</a><a href="/export">Exportdaten</a></nav></div></header>
 <main id="inhalt" class="shell" tabindex="-1">{content}</main>
 <footer class="shell">Private Leseansicht · Angaben aus dem GEDCOM sind nicht automatisch geprüft. · Darstellung folgt dem Hell-/Dunkelmodus des Geräts.</footer></body></html>'''
 
@@ -277,6 +284,8 @@ def export_record_page(connection, record_id):
         related = link("Zum Personenprofil", f'/person/{quote(record["xref"])}')
     elif record["tag"] == "SOUR":
         related = link("Zur Quellenansicht", f'/source/{quote(record["xref"])}')
+    elif record["tag"] == "FAM":
+        related = link("Zur Familienansicht", f'/family/{quote(record["xref"])}')
     elif record["tag"] == "OBJE":
         related = link("Zur Medienansicht", f'/media-info/{quote(record["xref"])}')
     elif record["tag"] == "_PLAC":
@@ -621,6 +630,7 @@ def person_page(connection, person_id, media_root=None):
         if media:
             family_media.append(f'<section><h3>Mit {person_link(partner)}</h3>{media}</section>')
     family_events = ''.join(f'<article class="family-event"><h3>Mit {person_link(connection.execute("SELECT * FROM people WHERE id=?", (family["wife_id"] if family["husband_id"] == person_id else family["husband_id"],)).fetchone())}</h3>'
+                            f'<p>{link("Familienansicht öffnen", "/family/" + quote(family["id"]))}</p>'
                             f'{facts_html(connection, "family", family["id"], media_root)}</article>' for family in own_families)
     direct_media = media_for(connection, "person", person_id, media_root)
     direct_citations = citations_for(connection, "person", person_id)
@@ -687,6 +697,32 @@ def person_page(connection, person_id, media_root=None):
 {f'<h3>Paten und weitere Beziehungen</h3>{association_links}' if association_links else ''}</section>'''
     content += f'</div>{relation_rail("Kinder", children, "children", "desktop-children")}</div>'
     return layout(person["name"], content)
+
+
+def family_page(connection, family_id, media_root=None):
+    family = connection.execute("SELECT * FROM families WHERE id=?", (family_id,)).fetchone()
+    if not family:
+        return None
+    parents = [connection.execute("SELECT * FROM people WHERE id=?", (family[column],)).fetchone()
+               for column in ("husband_id", "wife_id") if family[column]]
+    children = connection.execute(
+        "SELECT people.* FROM children JOIN people ON people.id=children.person_id "
+        "WHERE children.family_id=? ORDER BY people.name", (family_id,)
+    ).fetchall()
+    title = " und ".join(person["name"] for person in parents if person) or "Familie ohne benannte Eltern"
+    citations = citations_for(connection, "family", family_id)
+    source_links = [citation_marker(f'/source/{quote(citation["source_id"])}',
+                                    f'Quelle zur Familie öffnen: {citation["title"] or citation["source_id"]}')
+                    for citation in citations]
+    content = f'''<p class="back">{link('← Zu den Familien', '/reports/families')}</p><h1>Familie: {escape(title)}</h1>
+<p>{original_record_link(connection, family_id)}</p>
+<section class="panel"><h2>Eltern und Partner</h2>{list_items([person_link(person) for person in parents if person])}</section>
+<section class="panel"><h2>Kinder</h2>{list_items([person_link(child) for child in children])}</section>
+<section class="panel"><h2>Familienereignisse</h2>{facts_html(connection, "family", family_id, media_root)}</section>
+<section class="panel"><h2>Medien</h2>{media_for(connection, "family", family_id, media_root) or '<p>Keine Medien direkt zur Familie verknüpft.</p>'}</section>
+<section class="panel"><h2>Notizen</h2>{notes_html(connection, "family", family_id) or '<p>Keine Familiennotizen im GEDCOM.</p>'}</section>
+<section class="panel"><h2>Direkte Quellenverweise</h2>{list_items(source_links)}</section>'''
+    return layout(title, content)
 
 
 def family_graph(connection):
@@ -939,6 +975,104 @@ def events_page(connection, query, page):
     return layout("Ereignisse", content)
 
 
+def exact_gedcom_day(value):
+    match = re.fullmatch(r"(\d{1,2}) ([A-Z]{3}) (\d{1,4})", value or "")
+    if not match or match.group(2) not in GEDCOM_MONTHS:
+        return None
+    day = int(match.group(1))
+    month = GEDCOM_MONTHS[match.group(2)][0]
+    year = int(match.group(3))
+    try:
+        date(year, month, day)
+    except ValueError:
+        return None
+    return month, day
+
+
+def reports_page(connection):
+    content = '''<h1>Berichte</h1><p>Lesbare Auswertungen des importierten GEDCOM. Nur eindeutig vorhandene Angaben werden gezählt; unbekannte Daten bleiben unbekannt.</p>
+<section class="panel"><h2>Verfügbare Berichte</h2><ul>
+<li><a href="/reports/statistics">Bestandsstatistik und Namensverteilung</a></li>
+<li><a href="/reports/anniversaries">Jahrestage nach Monat</a></li>
+<li><a href="/reports/families">Familienverzeichnis und Familienansichten</a></li>
+<li><a href="/events">Ereignisverzeichnis</a></li>
+<li><a href="/places">Ortsverzeichnis</a></li>
+<li><a href="/sources">Quellenverzeichnis</a></li></ul></section>'''
+    return layout("Berichte", content)
+
+
+def families_page(connection, query, page):
+    term = query.strip()[:100]
+    page = min(max(page, 1), 10000)
+    condition = "WHERE COALESCE(first.name, '') LIKE ? COLLATE NOCASE OR COALESCE(second.name, '') LIKE ? COLLATE NOCASE"
+    values = (f'%{term}%', f'%{term}%')
+    joins = ("FROM families LEFT JOIN people first ON first.id=families.husband_id "
+             "LEFT JOIN people second ON second.id=families.wife_id ")
+    count = connection.execute(f'SELECT COUNT(*) {joins}{condition}', values).fetchone()[0]
+    families = connection.execute(
+        f'SELECT families.id, first.name AS first_name, second.name AS second_name {joins}{condition} '
+        'ORDER BY COALESCE(first.name, second.name), COALESCE(second.name, first.name), families.id LIMIT 50 OFFSET ?',
+        (*values, (page - 1) * 50),
+    ).fetchall()
+    entries = [link(' und '.join(name for name in (family['first_name'], family['second_name']) if name)
+                    or 'Familie ohne benannte Eltern', '/family/' + quote(family['id'])) for family in families]
+    previous = link('← Vorherige', f'/reports/families?q={quote(term)}&page={page - 1}') if page > 1 else ''
+    following = link('Nächste →', f'/reports/families?q={quote(term)}&page={page + 1}') if page * 50 < count else ''
+    content = f'''<p class="back">{link('← Zu den Berichten', '/reports')}</p><h1>Familienverzeichnis</h1>
+<p>{count} Familien gefunden.</p><form class="search panel" action="/reports/families" method="get">
+<label for="family-search">Nach Partnernamen suchen</label><div><input id="family-search" name="q" type="search" value="{escape(term, quote=True)}"><button>Suchen</button></div></form>
+<section class="panel"><h2>Familien</h2>{list_items(entries)}<nav class="pagination" aria-label="Familienseiten">{previous} {following}</nav></section>'''
+    return layout("Familienverzeichnis", content)
+
+
+def statistics_page(connection):
+    counts = {table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+              for table in ("people", "families", "facts", "sources", "media", "places")}
+    cited_events = connection.execute("SELECT COUNT(DISTINCT fact_id) FROM citations").fetchone()[0]
+    event_types = connection.execute(
+        "SELECT kind, COUNT(*) AS total FROM facts GROUP BY kind ORDER BY total DESC, kind LIMIT 20"
+    ).fetchall()
+    surnames = connection.execute(
+        "SELECT surname, COUNT(*) AS total FROM people WHERE TRIM(COALESCE(surname, ''))<>'' "
+        "GROUP BY surname COLLATE NOCASE ORDER BY total DESC, surname LIMIT 20"
+    ).fetchall()
+    count_fields = [("Personen", "people"), ("Familien", "families"), ("Ereignisse", "facts"),
+                    ("Quellen", "sources"), ("Medienobjekte", "media"), ("Ortsdatensätze", "places")]
+    count_html = ''.join(f'<dt>{label}</dt><dd>{counts[table]}</dd>' for label, table in count_fields)
+    event_html = [f'{link(row["kind"], "/events?q=" + quote(row["kind"]))}: {row["total"]}' for row in event_types]
+    surname_html = [f'{link(row["surname"], "/?q=" + quote(row["surname"]))}: {row["total"]}' for row in surnames]
+    content = f'''<p class="back">{link('← Zu den Berichten', '/reports')}</p><h1>Bestandsstatistik</h1>
+<p>Diese Zahlen beschreiben den importierten Datenbestand, nicht die historische Vollständigkeit der Forschung.</p>
+<section class="panel"><h2>Umfang</h2><dl>{count_html}</dl>
+<p>{cited_events} von {counts['facts']} Ereignissen haben einen formalen GEDCOM-Quellenverweis. Ein Verweis bestätigt die Aussage nicht automatisch.</p></section>
+<section class="panel"><h2>Ereignisarten</h2><p>Die 20 häufigsten Arten.</p>{list_items(event_html)}</section>
+<section class="panel"><h2>Nachnamen</h2><p>Die 20 häufigsten eingetragenen Nachnamen; leere Namen werden nicht gezählt.</p>{list_items(surname_html)}</section>'''
+    return layout("Bestandsstatistik", content)
+
+
+def anniversaries_page(connection, month):
+    month = month if 1 <= month <= 12 else date.today().month
+    entries = []
+    for fact in connection.execute(
+        "SELECT * FROM facts WHERE kind IN ('Geburt', 'Tod', 'Heirat') AND date_text<>''"
+    ):
+        exact_day = exact_gedcom_day(fact["date_text"])
+        if exact_day and exact_day[0] == month:
+            entries.append((exact_day[1], fact))
+    entries.sort(key=lambda entry: (entry[0], entry[1]["kind"], entry[1]["id"]))
+    month_name = next(name for number, name in GEDCOM_MONTHS.values() if number == month)
+    month_links = ' '.join(link(name, f'/reports/anniversaries?month={number}')
+                           for number, name in GEDCOM_MONTHS.values())
+    items = [f'{day}. {month_name} · {event_icon(fact["kind"])}{link(fact["kind"], "/event/" + str(fact["id"]))}'
+             f' ({escape(fact["date_text"])}) · {event_owner(connection, fact)}' for day, fact in entries[:200]]
+    content = f'''<p class="back">{link('← Zu den Berichten', '/reports')}</p><h1>Jahrestage im {month_name}</h1>
+<p>Geburten, Todesfälle und Heiraten mit einem eindeutigen Tag, Monat und Jahr im GEDCOM. Ungefähre und unvollständige Daten werden nicht als exakte Jahrestage ausgegeben.</p>
+<nav aria-label="Monat wählen"><p>{month_links}</p></nav>
+<section class="panel"><h2>{len(entries)} Jahrestage</h2>{list_items(items)}
+{'<p>Die ersten 200 Einträge werden angezeigt.</p>' if len(entries) > 200 else ''}</section>'''
+    return layout("Jahrestage", content)
+
+
 def source_page(connection, source_id, media_root=None):
     source = connection.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
     if not source:
@@ -1159,6 +1293,22 @@ class Handler(BaseHTTPRequestHandler):
                                     parameters.get("evidence", [""])[0])
                 elif route == "/sources":
                     body = sources_page(connection, parameters.get("q", [""])[0])
+                elif route == "/reports":
+                    body = reports_page(connection)
+                elif route == "/reports/statistics":
+                    body = statistics_page(connection)
+                elif route == "/reports/families":
+                    try:
+                        page = int(parameters.get("page", ["1"])[0])
+                    except ValueError:
+                        page = 1
+                    body = families_page(connection, parameters.get("q", [""])[0], page)
+                elif route == "/reports/anniversaries":
+                    try:
+                        month = int(parameters.get("month", [str(date.today().month)])[0])
+                    except ValueError:
+                        month = date.today().month
+                    body = anniversaries_page(connection, month)
                 elif route in ("/export", "/places"):
                     try:
                         page = int(parameters.get("page", ["1"])[0])
@@ -1185,6 +1335,8 @@ class Handler(BaseHTTPRequestHandler):
                     body = archive_page(connection, parameters.get("q", [""])[0], page)
                 elif re.fullmatch(r"/person/[A-Za-z0-9_-]+", route):
                     body = person_page(connection, route.rsplit("/", 1)[1], self.media_root)
+                elif re.fullmatch(r"/family/[A-Za-z0-9_-]+", route):
+                    body = family_page(connection, route.rsplit("/", 1)[1], self.media_root)
                 elif re.fullmatch(r"/export-record/[0-9]+", route):
                     body = export_record_page(connection, int(route.rsplit("/", 1)[1]))
                 elif re.fullmatch(r"/place/[0-9]+", route):
