@@ -91,15 +91,15 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .tree-chart { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 1.2rem; width: 100%; min-width: 0; margin-block: 1.5rem; }
 .tree-section { width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 1.5rem 0; }
 .tree-section h2 { text-align: center; padding-inline: 1rem; }
-.tree-scroll { max-width: 100%; overflow-x: auto; padding: .5rem 1rem 1rem; }
+.tree-scroll { max-width: 100%; padding: .5rem 1rem 1rem; }
 .tree-scroll > p { text-align: center; }
-.tree-branches { display: flex; justify-content: center; align-items: flex-end; gap: .75rem; width: max-content; min-width: 100%; list-style: none; margin: 0 auto; padding: 0; }
+.tree-branches { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: .75rem; width: 100%; min-width: 0; list-style: none; margin: 0 auto; padding: 0; }
 .descendant-chart .tree-branches { align-items: flex-start; }
-.tree-node { display: flex; flex-direction: column; align-items: center; position: relative; margin: 0; }
+.tree-node { display: flex; flex: 1 1 10rem; flex-direction: column; align-items: center; min-width: 0; position: relative; margin: 0; }
 .ancestor-chart .tree-node { flex-direction: column-reverse; }
-.tree-card { display: grid; align-content: center; gap: .2rem; width: 11rem; min-height: 5.4rem; padding: .65rem .8rem; text-align: center; background: var(--soft); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 5px 16px rgba(20,48,42,.08); overflow-wrap: anywhere; }
+.tree-card { display: grid; align-content: center; gap: .2rem; width: min(100%, 11rem); min-height: 5.4rem; padding: .65rem .8rem; text-align: center; background: var(--soft); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 5px 16px rgba(20,48,42,.08); overflow-wrap: anywhere; }
 .tree-card a { font-weight: 700; }
-.tree-node > .tree-branches { position: relative; min-width: 0; }
+.tree-node > .tree-branches { position: relative; width: 100%; min-width: 0; }
 .descendant-chart .tree-node > .tree-branches { border-top: 2px solid var(--accent); margin-top: 1.25rem; padding-top: 1rem; }
 .descendant-chart .tree-node > .tree-branches::before, .descendant-chart .tree-node > .tree-branches > .tree-node::before { content: ""; position: absolute; top: -1rem; left: 50%; height: 1rem; border-left: 2px solid var(--accent); }
 .descendant-chart .tree-node > .tree-branches > .tree-node::before { top: -1rem; }

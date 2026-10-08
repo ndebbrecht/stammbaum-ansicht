@@ -149,8 +149,9 @@ Noch nicht enthalten: Bearbeitung und GEDCOM-Export. Die Baumansicht zeigt
 jeweils bis zu fünf Generationen um eine Ausgangsperson, keinen vollständigen
 interaktiven Gesamtbaum. Bei sehr großen Familienlinien begrenzt sie die
 Anzeige auf 250 Personen je Richtung und erlaubt das Weiterwandern über
-eine neue Ausgangsperson. Breite Familienzweige sind auf schmalen Bildschirmen
-horizontal scrollbar; die einzelnen Namen bleiben per Tastatur erreichbar.
+eine neue Ausgangsperson. Breite Familienzweige umbrechen auf schmalen
+Bildschirmen, ohne seitliches Scrollen zu erfordern; die einzelnen Namen
+bleiben per Tastatur erreichbar.
 Der Import bildet nicht alle GEDCOM-Erweiterungen ab; insbesondere proprietäre
 MacFamilyTree-Felder werden noch nicht vollständig interpretiert. Orts- und
 Jahresfilter suchen in den textuellen Ereignisangaben, nicht in normierten
