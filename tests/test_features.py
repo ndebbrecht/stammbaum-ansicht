@@ -57,7 +57,11 @@ class FeatureTest(unittest.TestCase):
                 long = tree_page(connection, "I3", 3)
                 self.assertIn('href="/person/I1"', long)
                 self.assertIn('href="/person/I5"', long)
-                self.assertIn('class="tree-branches"', long)
+                self.assertIn('class="tree-section ancestor-chart"', long)
+                self.assertIn('class="tree-section descendant-chart"', long)
+                self.assertIn('aria-label="Eltern von Clara Beispiel"', long)
+                self.assertIn('aria-label="Kinder von Clara Beispiel"', long)
+                self.assertIn('class="tree-node"', long)
                 self.assertIn('value="3" selected', long)
 
     def test_exact_source_media_match_is_verified(self):
