@@ -306,6 +306,7 @@ def connections_page(connection, origin, destination, query):
 def tree_branches(connection, person_id, person_name, depth, ancestors):
     displayed = 0
     truncated = False
+    generations = {}
 
     def branch(current_id, current_name, generation, path):
         nonlocal displayed, truncated
@@ -332,19 +333,41 @@ def tree_branches(connection, person_id, person_name, depth, ancestors):
                 break
             displayed += 1
             relative_id = relative["id"]
+            generations.setdefault(generation + 1, []).append((relative, current_name))
             continuation = branch(relative_id, relative["name"], generation + 1,
                                   path | {relative_id}) if relative_id not in path else ""
-            entries.append(f'<li class="tree-node"><div class="tree-card">'
-                           f'<span class="generation">Generation {generation + 1}</span>'
-                           f'{person_link(relative)}</div>{continuation}</li>')
+            entries.append(f'<li><span class="generation">Generation {generation + 1}:</span> '
+                           f'{person_link(relative)}{continuation}</li>')
         relation = "Eltern" if ancestors else "Kinder"
-        return (f'<ul class="tree-branches" aria-label="{relation} von {escape(current_name, quote=True)}">'
+        return (f'<ul class="relation-list" aria-label="{relation} von {escape(current_name, quote=True)}">'
                 + ''.join(entries) + '</ul>') if entries else ""
 
-    return branch(person_id, person_name, 1, {person_id}), truncated
+    return branch(person_id, person_name, 1, {person_id}), truncated, generations
 
 
-def tree_page(connection, person_id, depth=4):
+def generation_bands(generations, ancestors):
+    labels = {2: "Eltern" if ancestors else "Kinder", 3: "Großeltern" if ancestors else "Enkel"}
+    bands = []
+    for number in sorted(generations, reverse=ancestors):
+        entries = generations[number]
+        cards = []
+        for person, related_name in entries:
+            initials = "".join(part[0] for part in person["name"].split()[:2]).upper()
+            relationship = "Elternteil von" if ancestors else "Kind von"
+            cards.append(f'<li><a class="generation-card" href="/person/{quote(person["id"])}">'
+                         f'<span class="person-initials" aria-hidden="true">{escape(initials)}</span>'
+                         f'<span class="card-copy"><strong>{escape(person["name"])}</strong>'
+                         f'<span>{relationship} {escape(related_name)}</span></span></a></li>')
+        title = labels.get(number, "Vorfahren" if ancestors else "Nachkommen")
+        columns = min(len(cards), 4)
+        bands.append(f'<section class="generation-band band-count-{columns}" aria-label="{title}, Generation {number}">'
+                     f'<h3>{title} <span>Generation {number}</span></h3>'
+                     f'<ul class="generation-grid band-count-{columns}">'
+                     + ''.join(cards) + '</ul></section>')
+    return ''.join(bands)
+
+
+def tree_page(connection, person_id, depth=3):
     person = connection.execute("SELECT * FROM people WHERE id=?", (person_id,)).fetchone()
     if not person:
         return None
@@ -354,23 +377,27 @@ def tree_page(connection, person_id, depth=4):
         "(people.id=families.husband_id AND families.wife_id=?) OR "
         "(people.id=families.wife_id AND families.husband_id=?) ORDER BY people.name", (person_id, person_id)
     ).fetchall()
-    ancestors, ancestors_truncated = tree_branches(connection, person_id, person["name"], depth, True)
-    descendants, descendants_truncated = tree_branches(connection, person_id, person["name"], depth, False)
+    ancestors, ancestors_truncated, ancestor_generations = tree_branches(connection, person_id, person["name"], depth, True)
+    descendants, descendants_truncated, descendant_generations = tree_branches(connection, person_id, person["name"], depth, False)
     truncation = ('<p class="muted">Diese Ansicht zeigt höchstens 250 Personen je Richtung. '
                   'Öffne eine Person weiter außen als neuen Ausgangspunkt.</p>') if ancestors_truncated or descendants_truncated else ''
-    content = f'''<p class="back">{link('← Zur Person', '/person/' + quote(person_id))}</p>
-<h1>Familienbaum</h1><p>Vorfahren oberhalb, Nachkommen unterhalb der Ausgangsperson. Die Familienlinien reichen
-bis zu {depth} Generationen einschließlich der Ausgangsperson. Jeder Name führt zur Personenseite.</p>
-<form class="search panel" action="/tree/{quote(person_id)}" method="get"><label for="depth">Anzahl der Generationen</label>
+    initials = "".join(part[0] for part in person["name"].split()[:2]).upper()
+    content = f'''<div class="tree-page"><p class="back">{link('← Zur Person', '/person/' + quote(person_id))}</p>
+<header class="tree-toolbar"><div><p class="eyebrow">Familienlinien</p><h1>Familienbaum</h1>
+<p>Vorfahren, Ausgangsperson und Nachkommen auf einen Blick.</p></div>
+<form class="tree-controls" action="/tree/{quote(person_id)}" method="get"><label for="depth">Generationen</label>
 <select id="depth" name="depth">{''.join(f'<option value="{number}"{" selected" if number == depth else ""}>{number}</option>' for number in range(2, 6))}</select>
-<button type="submit">Baum anzeigen</button></form>
-{truncation}<div class="tree-chart"><section class="tree-section ancestor-chart" aria-labelledby="ancestors-title">
-<h2 id="ancestors-title">Vorfahren</h2><div class="tree-scroll">{ancestors or '<p>Keine Vorfahren verknüpft.</p>'}</div></section>
-<section class="tree-focus{' has-ancestors' if ancestors else ''}{' has-descendants' if descendants else ''}" aria-labelledby="focus-title"><p class="eyebrow">Ausgangspunkt</p>
-<h2 id="focus-title">{person_link(person)}</h2>
-{('<h3>Partner</h3>' + list_items([person_link(member) for member in partners])) if partners else ''}</section>
-<section class="tree-section descendant-chart" aria-labelledby="descendants-title">
-<h2 id="descendants-title">Nachkommen</h2><div class="tree-scroll">{descendants or '<p>Keine Nachkommen verknüpft.</p>'}</div></section></div>'''
+<button type="submit">Anzeigen</button></form></header>
+{truncation}<div class="generation-map"><section class="generation-group" aria-labelledby="ancestors-title">
+<h2 id="ancestors-title">Vorfahren</h2>{generation_bands(ancestor_generations, True) or '<p>Keine Vorfahren verknüpft.</p>'}</section>
+<section class="focus-person" aria-labelledby="focus-title"><span class="person-initials" aria-hidden="true">{escape(initials)}</span>
+<div><p class="eyebrow">Ausgangsperson</p><h2 id="focus-title">{person_link(person)}</h2>
+{('<p>Partner: ' + ', '.join(person_link(member) for member in partners) + '</p>') if partners else ''}</div></section>
+<section class="generation-group" aria-labelledby="descendants-title"><h2 id="descendants-title">Nachkommen</h2>
+{generation_bands(descendant_generations, False) or '<p>Keine Nachkommen verknüpft.</p>'}</section></div>
+<details class="relation-details"><summary>Familienlinien als verschachtelte Liste</summary>
+<h2>Vorfahren</h2>{ancestors or '<p>Keine Vorfahren verknüpft.</p>'}
+<h2>Nachkommen</h2>{descendants or '<p>Keine Nachkommen verknüpft.</p>'}</details></div>'''
     return layout("Familienbaum", content)
 
 
@@ -662,9 +689,9 @@ class Handler(BaseHTTPRequestHandler):
                     body = person_page(connection, route.rsplit("/", 1)[1], self.media_root)
                 elif re.fullmatch(r"/tree/[A-Za-z0-9_-]+", route):
                     try:
-                        depth = int(parameters.get("depth", ["4"])[0])
+                        depth = int(parameters.get("depth", ["3"])[0])
                     except ValueError:
-                        depth = 4
+                        depth = 3
                     body = tree_page(connection, route.rsplit("/", 1)[1], depth)
                 elif re.fullmatch(r"/source/[A-Za-z0-9_-]+", route):
                     body = source_page(connection, route.rsplit("/", 1)[1], self.media_root)

@@ -57,11 +57,20 @@ class FeatureTest(unittest.TestCase):
                 long = tree_page(connection, "I3", 3)
                 self.assertIn('href="/person/I1"', long)
                 self.assertIn('href="/person/I5"', long)
-                self.assertIn('class="tree-section ancestor-chart"', long)
-                self.assertIn('class="tree-section descendant-chart"', long)
+                self.assertIn('class="generation-group" aria-labelledby="ancestors-title"', long)
+                self.assertIn('class="generation-group" aria-labelledby="descendants-title"', long)
+                self.assertIn('class="generation-card"', long)
+                self.assertIn('class="generation-grid band-count-1"', long)
+                self.assertNotIn('style="', long)
+                self.assertIn('Elternteil von Clara Beispiel', long)
+                self.assertIn('Kind von Clara Beispiel', long)
+                self.assertIn('Familienlinien als verschachtelte Liste', long)
+                self.assertLess(long.index('aria-label="Großeltern, Generation 3"'),
+                                long.index('aria-label="Eltern, Generation 2"'))
+                self.assertLess(long.index('id="focus-title"'),
+                                long.index('aria-label="Kinder, Generation 2"'))
                 self.assertIn('aria-label="Eltern von Clara Beispiel"', long)
                 self.assertIn('aria-label="Kinder von Clara Beispiel"', long)
-                self.assertIn('class="tree-node"', long)
                 self.assertIn('value="3" selected', long)
 
     def test_exact_source_media_match_is_verified(self):

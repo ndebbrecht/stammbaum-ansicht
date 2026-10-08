@@ -134,7 +134,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Personensuche nach Name, Ereignisort, Ereignisjahr und vorhandenem oder fehlendem GEDCOM-Quellenverweis
 - Eltern, Geschwister, Partner und Kinder als zugängliche Links
 - Eigene Ereignisseiten und eine durchsuchbare Ereignisliste
-- Trichterförmiger Familienbaum mit wählbarer Tiefe (2–5), verbundenen Vorfahren- und Nachkommenzweigen sowie semantisch verschachtelten Listen für Screenreader; dazu kürzester Verbindungsweg zwischen zwei Personen
+- Kompakter Familienbaum mit wählbarer Tiefe (2–5), nach Generationen geordneten Vorfahren und Nachkommen sowie aufklappbaren, semantisch verschachtelten Familienlinien; dazu kürzester Verbindungsweg zwischen zwei Personen
 - Lebensereignisse mit vorhandenen GEDCOM-Quellenverweisen und Seitenangaben
 - Import und Anzeige von GEDCOM-Notizen, Repositorien, weiteren Beziehungen sowie zusätzlichen Ereignistypen wie Einwanderung und Adoption
 - Verlobung und weitere Familienereignisse auf den beteiligten Personenseiten
@@ -149,9 +149,10 @@ Noch nicht enthalten: Bearbeitung und GEDCOM-Export. Die Baumansicht zeigt
 jeweils bis zu fünf Generationen um eine Ausgangsperson, keinen vollständigen
 interaktiven Gesamtbaum. Bei sehr großen Familienlinien begrenzt sie die
 Anzeige auf 250 Personen je Richtung und erlaubt das Weiterwandern über
-eine neue Ausgangsperson. Breite Familienzweige umbrechen auf schmalen
-Bildschirmen, ohne seitliches Scrollen zu erfordern; die einzelnen Namen
-bleiben per Tastatur erreichbar.
+eine neue Ausgangsperson. Generationskarten ordnen sich auf schmalen
+Bildschirmen neu an, ohne seitliches Scrollen zu erfordern; die einzelnen Namen
+bleiben per Tastatur erreichbar. Die aufklappbare Familienliste zeigt die
+genauen Verzweigungen, die kompakten Generationskarten nur die Ebene.
 Der Import bildet nicht alle GEDCOM-Erweiterungen ab; insbesondere proprietäre
 MacFamilyTree-Felder werden noch nicht vollständig interpretiert. Orts- und
 Jahresfilter suchen in den textuellen Ereignisangaben, nicht in normierten
