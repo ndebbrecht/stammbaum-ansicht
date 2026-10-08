@@ -1031,11 +1031,15 @@ def event_page(connection, fact_id, media_root=None):
     return layout(fact["kind"], content)
 
 
-def events_page(connection, query, page):
+def events_page(connection, query, page, evidence=""):
     term = query.strip()[:100]
     page = min(max(page, 1), 10000)
+    evidence = evidence if evidence in ("with", "without") else ""
     pattern = f"%{term}%"
-    filter_sql = "WHERE kind LIKE ? OR date_text LIKE ? OR place LIKE ? OR value LIKE ?"
+    filter_sql = "WHERE (kind LIKE ? OR date_text LIKE ? OR place LIKE ? OR value LIKE ?)"
+    if evidence:
+        citation_exists = "EXISTS (SELECT 1 FROM citations WHERE citations.fact_id=facts.id)"
+        filter_sql += " AND " + (citation_exists if evidence == "with" else "NOT " + citation_exists)
     values = (pattern,) * 4
     count = connection.execute(f"SELECT COUNT(*) FROM facts {filter_sql}", values).fetchone()[0]
     facts = connection.execute(
@@ -1045,12 +1049,15 @@ def events_page(connection, query, page):
     entries = [f'{event_icon(fact["kind"])}{link(fact["kind"], "/event/" + str(fact["id"]))} · '
                f'{escape(fact["date_text"] or "ohne Datum")} · {event_owner(connection, fact)} '
                + (citation_marker(f'/event/{fact["id"]}#sources', f'{fact["citation_count"]} Quelle(n) zu {fact["kind"]} anzeigen')
-                  if fact["citation_count"] else '') for fact in facts]
-    previous = link("← Vorherige", f'/events?q={quote(term)}&page={page - 1}') if page > 1 else ""
-    following = link("Nächste →", f'/events?q={quote(term)}&page={page + 1}') if page * 50 < count else ""
+                  if fact["citation_count"] else '<span class="muted">ohne formalen Quellenverweis</span>' if evidence == "without" else '') for fact in facts]
+    previous = link("← Vorherige", f'/events?q={quote(term)}&evidence={evidence}&page={page - 1}') if page > 1 else ""
+    following = link("Nächste →", f'/events?q={quote(term)}&evidence={evidence}&page={page + 1}') if page * 50 < count else ""
     content = f'''<h1>Ereignisse</h1><p>{count} Einträge gefunden.</p>
 <form class="search panel" action="/events" method="get"><label for="event-search">Ereignisse suchen</label>
-<div><input id="event-search" name="q" type="search" value="{escape(term, quote=True)}"><button>Suchen</button></div></form>
+<div><input id="event-search" name="q" type="search" value="{escape(term, quote=True)}"></div>
+<label for="event-evidence">Formaler GEDCOM-Quellenverweis</label><select id="event-evidence" name="evidence">
+<option value="">Alle</option><option value="with"{' selected' if evidence == 'with' else ''}>Mit Verweis</option>
+<option value="without"{' selected' if evidence == 'without' else ''}>Ohne Verweis</option></select><button>Suchen</button></form>
 <section class="panel"><h2>Ergebnisse</h2>{list_items(entries)}<nav class="pagination" aria-label="Ergebnisseiten">{previous} {following}</nav></section>'''
     return layout("Ereignisse", content)
 
@@ -1126,6 +1133,7 @@ def reports_page(connection):
 <li><a href="/reports/anniversaries">Jahrestage nach Monat</a></li>
 <li><a href="/reports/families">Familienverzeichnis und Familienansichten</a></li>
 <li><a href="/events">Ereignisverzeichnis</a></li>
+<li><a href="/events?evidence=without">Ereignisse ohne formalen Quellenverweis</a></li>
 <li><a href="/places">Ortsverzeichnis</a></li>
 <li><a href="/sources">Quellenverzeichnis</a></li></ul></section>'''
     return layout("Berichte", content)
@@ -1166,17 +1174,29 @@ def statistics_page(connection):
         "SELECT surname, COUNT(*) AS total FROM people WHERE TRIM(COALESCE(surname, ''))<>'' "
         "GROUP BY surname COLLATE NOCASE ORDER BY total DESC, surname LIMIT 20"
     ).fetchall()
+    given_names = connection.execute(
+        "SELECT given_name, COUNT(*) AS total FROM people WHERE TRIM(COALESCE(given_name, ''))<>'' "
+        "GROUP BY given_name COLLATE NOCASE ORDER BY total DESC, given_name LIMIT 20"
+    ).fetchall()
+    places = connection.execute(
+        "SELECT place, COUNT(*) AS total FROM facts WHERE TRIM(COALESCE(place, ''))<>'' "
+        "GROUP BY place COLLATE NOCASE ORDER BY total DESC, place LIMIT 20"
+    ).fetchall()
     count_fields = [("Personen", "people"), ("Familien", "families"), ("Ereignisse", "facts"),
                     ("Quellen", "sources"), ("Medienobjekte", "media"), ("Ortsdatensätze", "places")]
     count_html = ''.join(f'<dt>{label}</dt><dd>{counts[table]}</dd>' for label, table in count_fields)
     event_html = [f'{link(row["kind"], "/events?q=" + quote(row["kind"]))}: {row["total"]}' for row in event_types]
     surname_html = [f'{link(row["surname"], "/?q=" + quote(row["surname"]))}: {row["total"]}' for row in surnames]
+    given_html = [f'{link(row["given_name"], "/?q=" + quote(row["given_name"]))}: {row["total"]}' for row in given_names]
+    place_html = [f'{link(format_place(row["place"]), "/events?q=" + quote(row["place"]))}: {row["total"]}' for row in places]
     content = f'''<p class="back">{link('← Zu den Berichten', '/reports')}</p><h1>Bestandsstatistik</h1>
 <p>Diese Zahlen beschreiben den importierten Datenbestand, nicht die historische Vollständigkeit der Forschung.</p>
 <section class="panel"><h2>Umfang</h2><dl>{count_html}</dl>
 <p>{cited_events} von {counts['facts']} Ereignissen haben einen formalen GEDCOM-Quellenverweis. Ein Verweis bestätigt die Aussage nicht automatisch.</p></section>
 <section class="panel"><h2>Ereignisarten</h2><p>Die 20 häufigsten Arten.</p>{list_items(event_html)}</section>
-<section class="panel"><h2>Nachnamen</h2><p>Die 20 häufigsten eingetragenen Nachnamen; leere Namen werden nicht gezählt.</p>{list_items(surname_html)}</section>'''
+<section class="panel"><h2>Nachnamen</h2><p>Die 20 häufigsten eingetragenen Nachnamen; leere Namen werden nicht gezählt.</p>{list_items(surname_html)}</section>
+<section class="panel"><h2>Vornamen</h2><p>Die 20 häufigsten eingetragenen Vornamensfelder, einschließlich Mehrfachnamen.</p>{list_items(given_html)}</section>
+<section class="panel"><h2>Ereignisorte</h2><p>Die 20 häufigsten Ortsangaben in Ereignissen; unterschiedliche Schreibweisen bleiben getrennt.</p>{list_items(place_html)}</section>'''
     return layout("Bestandsstatistik", content)
 
 
@@ -1460,7 +1480,8 @@ class Handler(BaseHTTPRequestHandler):
                         page = int(parameters.get("page", ["1"])[0])
                     except ValueError:
                         page = 1
-                    body = events_page(connection, parameters.get("q", [""])[0], page)
+                    body = events_page(connection, parameters.get("q", [""])[0], page,
+                                       parameters.get("evidence", [""])[0])
                 elif route == "/connections":
                     body = connections_page(connection, parameters.get("from", [""])[0],
                                             parameters.get("to", [""])[0], parameters.get("q", [""])[0])

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from import_data import build
-from app import event_page, overview, person_page, source_page
+from app import event_page, events_page, overview, person_page, source_page
 
 
 class SyntheticImportTest(unittest.TestCase):
@@ -137,6 +137,10 @@ class SyntheticImportTest(unittest.TestCase):
                 self.assertNotIn('href="/person/I1"', overview(connection, "", place="Anderstadt", event_kind="Geburt"))
                 self.assertIn('href="/person/I2"', overview(connection, "", place="Anderstadt", event_kind="Geburt"))
                 self.assertIn('href="/person/I1"', overview(connection, "", place="Anderstadt", event_kind="Einwanderung"))
+                without_sources = events_page(connection, "", 1, "without")
+                self.assertIn('href="/event/2"', without_sources)
+                self.assertNotIn('href="/event/1"', without_sources)
+                self.assertIn('href="/event/1"', events_page(connection, "", 1, "with"))
             finally:
                 connection.close()
 

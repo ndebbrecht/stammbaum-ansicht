@@ -150,7 +150,8 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
 - Getrennte Kennzeichnung fehlender formaler Quellenverweise, angehängter Medien und offener Original-Zuordnungen
 - Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen
-- Barrierearm lesbare Berichte: Bestandsstatistik mit Ereignis- und Nachnamensverteilung, monatliche Jahrestage nur aus exakten GEDCOM-Daten sowie ein durchsuchbares Familienverzeichnis
+- Ereignisverzeichnis mit Filter für vorhandene und fehlende formale GEDCOM-Quellenverweise; fehlende Verweise werden nicht mit fehlenden Medien gleichgesetzt
+- Barrierearm lesbare Berichte: Bestandsstatistik mit Ereignisarten, Vor- und Nachnamen sowie Ereignisorten, monatliche Jahrestage nur aus exakten GEDCOM-Daten sowie ein durchsuchbares Familienverzeichnis
 - Eigene Familienansichten mit Partnern, Kindern, Familienereignissen, Medien, Notizen und direkten Quellenverweisen; von den Personenprofilen aus erreichbar
 - Personen-Zeitleisten mit eigenen und gemeinsamen Familienereignissen; ungefähre Daten und Zeitspannen bleiben getrennt von eindeutig datierten Ereignissen
 

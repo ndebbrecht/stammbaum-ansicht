@@ -23,6 +23,7 @@ class FeatureTest(unittest.TestCase):
 1 NAME Ada /Beispiel/
 1 BIRT
 2 DATE 3 MAY 1880
+2 PLAC Musterstadt
 1 DEAT
 2 DATE ABT 3 MAY 1950
 0 @I2@ INDI
@@ -47,6 +48,8 @@ class FeatureTest(unittest.TestCase):
                 self.assertIn('<dt>Personen</dt><dd>2</dd>', statistics)
                 self.assertIn('<dt>Ereignisse</dt><dd>4</dd>', statistics)
                 self.assertIn('href="/?q=Beispiel"', statistics)
+                self.assertIn('href="/?q=Ada"', statistics)
+                self.assertIn('href="/events?q=Musterstadt"', statistics)
                 may = anniversaries_page(connection, 5)
                 self.assertIn("3. Mai", may)
                 self.assertIn("20. Mai", may)
