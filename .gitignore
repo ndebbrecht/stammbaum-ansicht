@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite-*
+*.ged
+*.gedcom
+.env
+.DS_Store
+private/
+data/

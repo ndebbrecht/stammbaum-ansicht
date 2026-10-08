@@ -1,0 +1,33 @@
+0 HEAD
+1 SOUR Synthetic
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Ada /Beispiel/
+2 GIVN Ada
+2 SURN Beispiel
+1 SEX F
+1 BIRT
+2 DATE 2 JAN 1900
+2 PLAC Musterstadt
+2 SOUR @S1@
+3 PAGE Seite 3
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Ben /Beispiel/
+1 SEX M
+1 BIRT
+2 DATE 3 FEB 1898
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Clara /Beispiel/
+1 FAMC @F1@
+0 @F1@ FAM
+1 WIFE @I1@
+1 HUSB @I2@
+1 CHIL @I3@
+0 @S1@ SOUR
+1 TITL Fiktives Geburtsregister
+1 AUTH Musterarchiv
+0 TRLR
