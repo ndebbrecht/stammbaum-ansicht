@@ -116,19 +116,27 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 
 ## Aktueller Umfang
 
-- Namenssuche über alle importierten Personen
+- Personensuche nach Name, Ereignisort, Ereignisjahr und vorhandenem oder fehlendem GEDCOM-Quellenverweis
 - Eltern, Geschwister, Partner und Kinder als zugängliche Links
 - Eigene Ereignisseiten und eine durchsuchbare Ereignisliste
-- Familienbaum um eine Person sowie kürzester Verbindungsweg zwischen zwei Personen
+- Mehrgenerationiger Familienbaum mit wählbarer Tiefe (2–5), verschachtelten Vorfahren- und Nachkommenlisten sowie kürzestem Verbindungsweg zwischen zwei Personen
 - Lebensereignisse mit vorhandenen GEDCOM-Quellenverweisen und Seitenangaben
+- Import und Anzeige von GEDCOM-Notizen, Repositorien, weiteren Beziehungen sowie zusätzlichen Ereignistypen wie Einwanderung und Adoption
 - Verlobung und weitere Familienereignisse auf den beteiligten Personenseiten
 - Verknüpfte Bilder und Dokumente aus GEDCOM-Medienobjekten
 - Automatischer Hell-/Dunkelmodus gemäß Geräteeinstellung
 - Dauerhafte Startperson per privater Serveroption
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
 - Deutliche Kennzeichnung fehlender Belege und offener Original-Zuordnungen
+- Quellenübersicht mit Anzahl der verknüpften Archivdateien und bei Ereignissen zitierten Quellen
 
 Noch nicht enthalten: Bearbeitung und GEDCOM-Export. Die Baumansicht zeigt
-derzeit das unmittelbare Umfeld, keinen vollständigen interaktiven Gesamtbaum.
-Der Import bildet nicht alle GEDCOM-Erweiterungen ab. Ein angehängtes Dokument
-ist nicht automatisch ein formaler GEDCOM-Quellenverweis.
+jeweils bis zu fünf Generationen um eine Ausgangsperson, keinen vollständigen
+interaktiven Gesamtbaum. Bei sehr großen Familienlinien begrenzt sie die
+Anzeige auf 250 Personen je Richtung und erlaubt das Weiterwandern über
+eine neue Ausgangsperson.
+Der Import bildet nicht alle GEDCOM-Erweiterungen ab; insbesondere proprietäre
+MacFamilyTree-Felder werden noch nicht vollständig interpretiert. Orts- und
+Jahresfilter suchen in den textuellen Ereignisangaben, nicht in normierten
+Kalenderdaten. Ein angehängtes Dokument ist nicht automatisch ein formaler
+GEDCOM-Quellenverweis.

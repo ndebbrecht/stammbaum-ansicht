@@ -18,6 +18,48 @@ EXAMPLE = Path(__file__).parents[1] / "examples" / "beispiel.ged"
 
 
 class FeatureTest(unittest.TestCase):
+    def test_multigeneration_tree_respects_depth_and_family_branches(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Alma /Beispiel/
+0 @I2@ INDI
+1 NAME Berta /Beispiel/
+0 @I3@ INDI
+1 NAME Clara /Beispiel/
+0 @I4@ INDI
+1 NAME Dora /Beispiel/
+0 @I5@ INDI
+1 NAME Emma /Beispiel/
+0 @F1@ FAM
+1 WIFE @I1@
+1 CHIL @I2@
+0 @F2@ FAM
+1 WIFE @I2@
+1 CHIL @I3@
+0 @F3@ FAM
+1 WIFE @I3@
+1 CHIL @I4@
+0 @F4@ FAM
+1 WIFE @I4@
+1 CHIL @I5@
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                short = tree_page(connection, "I3", 2)
+                self.assertIn('href="/person/I2"', short)
+                self.assertIn('href="/person/I4"', short)
+                self.assertNotIn('href="/person/I1"', short)
+                self.assertNotIn('href="/person/I5"', short)
+                long = tree_page(connection, "I3", 3)
+                self.assertIn('href="/person/I1"', long)
+                self.assertIn('href="/person/I5"', long)
+                self.assertIn('class="tree-branches"', long)
+                self.assertIn('value="3" selected', long)
+
     def test_exact_source_media_match_is_verified(self):
         gedcom = """0 @I1@ INDI
 1 NAME Ada /Beispiel/

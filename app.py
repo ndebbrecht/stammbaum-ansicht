@@ -51,15 +51,28 @@ def database(path):
     return connection
 
 
-def overview(connection, query, featured_person_id=None, media_root=None):
+def overview(connection, query, featured_person_id=None, media_root=None, place="", year="", evidence=""):
     term = query.strip()[:100]
-    if term:
-        people = connection.execute(
-            "SELECT * FROM people WHERE name LIKE ? COLLATE NOCASE OR surname LIKE ? COLLATE NOCASE ORDER BY name LIMIT 100",
-            (f"%{term}%", f"%{term}%"),
-        ).fetchall()
-    else:
-        people = connection.execute("SELECT * FROM people ORDER BY name LIMIT 50").fetchall()
+    place = place.strip()[:100]
+    year = year.strip() if len(year.strip()) == 4 and year.strip().isdigit() else ""
+    evidence = evidence if evidence in ("with", "without") else ""
+    conditions = ["(people.name LIKE ? COLLATE NOCASE OR people.surname LIKE ? COLLATE NOCASE)"]
+    values = [f"%{term}%", f"%{term}%"]
+    if place or year:
+        fact_conditions = ["facts.owner_type='person'", "facts.owner_id=people.id"]
+        if place:
+            fact_conditions.append("facts.place LIKE ? COLLATE NOCASE")
+            values.append(f"%{place}%")
+        if year:
+            fact_conditions.append("facts.date_text LIKE ?")
+            values.append(f"%{year}%")
+        conditions.append("EXISTS (SELECT 1 FROM facts WHERE " + " AND ".join(fact_conditions) + ")")
+    if evidence:
+        source_exists = "EXISTS (SELECT 1 FROM facts JOIN citations ON citations.fact_id=facts.id WHERE facts.owner_type='person' AND facts.owner_id=people.id)"
+        conditions.append(source_exists if evidence == "with" else "NOT " + source_exists)
+    filtered = bool(term or place or year or evidence)
+    people = connection.execute("SELECT people.* FROM people WHERE " + " AND ".join(conditions)
+                                + " ORDER BY people.name LIMIT ?", (*values, 100 if filtered else 50)).fetchall()
     count = connection.execute("SELECT COUNT(*) FROM people").fetchone()[0]
     featured = connection.execute("SELECT * FROM people WHERE id=?", (featured_person_id,)).fetchone() if featured_person_id else None
     featured_html = ""
@@ -71,11 +84,17 @@ def overview(connection, query, featured_person_id=None, media_root=None):
 <p>{link('Meine Seite öffnen →', f'/person/{quote(featured["id"])}')}</p></div>{featured_media}</section>'''
     content = f'''<section class="intro"><p class="eyebrow">Private Familiengeschichte</p><h1>Menschen. Geschichten. Verbindungen.</h1>
 <p>Entdecke {count} Personen und die Spuren, die sie miteinander verbinden.</p></section>
-{featured_html}<form class="search panel" action="/" method="get"><label for="name">Person suchen</label>
-<div><input id="name" name="q" type="search" value="{escape(term, quote=True)}" autocomplete="off">
-<button type="submit">Suchen</button></div></form>
-<section class="panel" aria-labelledby="results"><h2 id="results">{'Suchergebnisse' if term else 'Personen entdecken'}</h2>
-<p class="muted">{len(people)} Treffer angezeigt{' · maximal 100' if term else ' · die Suche umfasst alle Personen'}.</p>
+{featured_html}<form class="search panel" action="/" method="get"><h2>Personen recherchieren</h2>
+<label for="name">Name</label><input id="name" name="q" type="search" value="{escape(term, quote=True)}" autocomplete="off">
+<label for="place">Ort eines Lebensereignisses</label><input id="place" name="place" type="search" value="{escape(place, quote=True)}">
+<label for="year">Jahr eines Lebensereignisses</label><input id="year" name="year" type="text" inputmode="numeric" pattern="[0-9]{{4}}" maxlength="4" value="{escape(year, quote=True)}">
+<label for="evidence">GEDCOM-Quellenverweis zu einem Lebensereignis</label><select id="evidence" name="evidence">
+<option value="">Alle</option><option value="with"{' selected' if evidence == 'with' else ''}>Mit Quellenverweis</option>
+<option value="without"{' selected' if evidence == 'without' else ''}>Ohne Quellenverweis</option></select>
+<p class="muted">Ort und Jahr müssen im selben Lebensereignis vorkommen. Ein Quellenverweis bedeutet keine historische Prüfung.</p>
+<button type="submit">Suchen</button></form>
+<section class="panel" aria-labelledby="results"><h2 id="results">{'Suchergebnisse' if filtered else 'Personen entdecken'}</h2>
+<p class="muted">{len(people)} Treffer angezeigt{' · maximal 100' if filtered else ' · für alle Personen die Suche verwenden'}.</p>
 {list_items([person_link(person) for person in people])}</section>'''
     return layout("Personen", content)
 
@@ -124,6 +143,16 @@ def citations_html(citations):
     ]) if citations else '<p class="unverified">Kein GEDCOM-Quellenverweis vorhanden.</p>'
 
 
+def notes_html(connection, owner_type, owner_id):
+    notes = connection.execute(
+        "SELECT COALESCE(notes.text, note_links.text) AS text FROM note_links "
+        "LEFT JOIN notes ON notes.id=note_links.note_id WHERE owner_type=? AND owner_id=?",
+        (owner_type, owner_id),
+    ).fetchall()
+    entries = [f'<span class="transcription">{escape(note["text"])}</span>' for note in notes if note["text"]]
+    return list_items(entries) if entries else ""
+
+
 def facts_html(connection, owner_type, owner_id, media_root=None):
     facts = connection.execute(
         "SELECT * FROM facts WHERE owner_type=? AND owner_id=? ORDER BY id", (owner_type, owner_id)
@@ -135,9 +164,10 @@ def facts_html(connection, owner_type, owner_id, media_root=None):
         citations = citations_for(connection, "fact", str(fact["id"]))
         details = ", ".join(escape(value) for value in (fact["date_text"], fact["place"], fact["value"]) if value)
         media = media_for(connection, "fact", str(fact["id"]), media_root)
+        notes = notes_html(connection, "fact", str(fact["id"]))
         evidence = f'<div class="evidence"><strong>Quellen</strong>{citations_html(citations)}</div>' if citations else '<p class="unverified">Kein GEDCOM-Quellenverweis vorhanden.</p>'
         entries.append(f'<li><article class="fact-card"><h3>{link(fact["kind"], "/event/" + str(fact["id"]))}</h3><p>{details or "Ohne weitere Angabe"}</p>'
-                       f'{media}{evidence}</article></li>')
+                       f'{notes}{media}{evidence}</article></li>')
     return '<ol class="facts">' + "".join(entries) + "</ol>"
 
 
@@ -182,6 +212,10 @@ def person_page(connection, person_id, media_root=None):
         "SELECT id FROM facts WHERE owner_type='person' AND owner_id=?", (person_id,)
     )]
     fact_media = ''.join(media_for(connection, "fact", fact_id, media_root) for fact_id in fact_ids)
+    associations = connection.execute(
+        "SELECT people.*, associations.relation FROM associations JOIN people ON people.id=associations.other_person_id "
+        "WHERE associations.person_id=? ORDER BY people.name", (person_id,),
+    ).fetchall()
     content = f'''<p class="back">{link('← Zur Startseite', '/')}</p><section class="person-hero"><p class="eyebrow">Personenprofil</p><h1>{escape(person["name"])}</h1>
 <p>Familie, Lebensereignisse und überlieferte Dokumente auf einen Blick.</p></section>
 <nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#relations">Beziehungen</a></nav>
@@ -190,11 +224,16 @@ def person_page(connection, person_id, media_root=None):
 <section class="panel" id="media" aria-labelledby="media-title"><h2 id="media-title">Medien & Quellen</h2>
 {direct_media or '<p>Keine direkt zugeordneten Medien.</p>'}<h3>Direkte Quellenverweise</h3>{citations_html(direct_citations)}
 <h3>Dokumente zu Lebensereignissen</h3>{fact_media or '<p>Keine weiteren Dokumente zu Lebensereignissen.</p>'}</section>
+<section class="panel"><h2>Notizen</h2>{notes_html(connection, "person", person_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
 <p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
 <p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p>
 <h3>Eltern</h3>{list_items(parents)}<h3>Geschwister</h3>{list_items(siblings)}
 <h3>Partner und Kinder</h3>{''.join(families) or '<p>Keine Familie im GEDCOM verknüpft.</p>'}</section>'''
+    if associations:
+        content += '<section class="panel"><h2>Weitere Beziehungen</h2>' + list_items([
+            person_link(person) + (" · " + escape(person["relation"]) if person["relation"] else "")
+            for person in associations]) + '</section>'
     return layout(person["name"], content)
 
 
@@ -264,37 +303,67 @@ def connections_page(connection, origin, destination, query):
     return layout("Personen verbinden", content)
 
 
-def tree_page(connection, person_id):
+def tree_branches(connection, person_id, depth, ancestors):
+    displayed = 0
+    truncated = False
+
+    def branch(current_id, generation, path):
+        nonlocal displayed, truncated
+        if generation >= depth:
+            return ""
+        if ancestors:
+            relatives = connection.execute(
+                "SELECT DISTINCT people.* FROM people JOIN families ON "
+                "people.id=families.husband_id OR people.id=families.wife_id "
+                "JOIN children ON children.family_id=families.id "
+                "WHERE children.person_id=? ORDER BY people.name", (current_id,),
+            ).fetchall()
+        else:
+            relatives = connection.execute(
+                "SELECT DISTINCT people.* FROM people JOIN children ON children.person_id=people.id "
+                "JOIN families ON families.id=children.family_id "
+                "WHERE families.husband_id=? OR families.wife_id=? ORDER BY people.name",
+                (current_id, current_id),
+            ).fetchall()
+        entries = []
+        for relative in relatives:
+            if displayed >= 250:
+                truncated = True
+                break
+            displayed += 1
+            relative_id = relative["id"]
+            continuation = branch(relative_id, generation + 1, path | {relative_id}) if relative_id not in path else ""
+            entries.append(f'<li><span class="generation">Generation {generation + 1}</span> '
+                           f'{person_link(relative)}{continuation}</li>')
+        return '<ul class="tree-branches">' + ''.join(entries) + '</ul>' if entries else ""
+
+    return branch(person_id, 1, {person_id}), truncated
+
+
+def tree_page(connection, person_id, depth=4):
     person = connection.execute("SELECT * FROM people WHERE id=?", (person_id,)).fetchone()
     if not person:
         return None
-    parents = connection.execute(
-        "SELECT DISTINCT people.* FROM people JOIN families ON people.id=families.husband_id OR people.id=families.wife_id "
-        "JOIN children ON children.family_id=families.id WHERE children.person_id=? ORDER BY people.name", (person_id,)
-    ).fetchall()
+    depth = min(max(depth, 2), 5)
     partners = connection.execute(
         "SELECT DISTINCT people.* FROM people JOIN families ON "
         "(people.id=families.husband_id AND families.wife_id=?) OR "
         "(people.id=families.wife_id AND families.husband_id=?) ORDER BY people.name", (person_id, person_id)
     ).fetchall()
-    children = connection.execute(
-        "SELECT DISTINCT people.* FROM people JOIN children ON children.person_id=people.id "
-        "JOIN families ON families.id=children.family_id WHERE families.husband_id=? OR families.wife_id=? ORDER BY people.name",
-        (person_id, person_id),
-    ).fetchall()
-    grandparents = []
-    for parent in parents:
-        grandparents.extend(connection.execute(
-            "SELECT DISTINCT people.* FROM people JOIN families ON people.id=families.husband_id OR people.id=families.wife_id "
-            "JOIN children ON children.family_id=families.id WHERE children.person_id=? ORDER BY people.name", (parent["id"],)
-        ).fetchall())
+    ancestors, ancestors_truncated = tree_branches(connection, person_id, depth, True)
+    descendants, descendants_truncated = tree_branches(connection, person_id, depth, False)
+    truncation = ('<p class="muted">Diese Ansicht zeigt höchstens 250 Personen je Richtung. '
+                  'Öffne eine Person weiter außen als neuen Ausgangspunkt.</p>') if ancestors_truncated or descendants_truncated else ''
     content = f'''<p class="back">{link('← Zur Person', '/person/' + quote(person_id))}</p>
-<h1>Familienbaum</h1><p>Übersicht um {escape(person['name'])}. Alle Namen führen zur jeweiligen Personenseite.</p>
-<div class="tree"><section class="panel"><h2>Großeltern</h2>{list_items([person_link(member) for member in grandparents])}</section>
-<section class="panel"><h2>Eltern</h2>{list_items([person_link(member) for member in parents])}</section>
+<h1>Familienbaum</h1><p>Ausgangspunkt: {person_link(person)}. Die Listen zeigen die Familienlinien über bis zu {depth} Generationen,
+einschließlich der Ausgangsperson. Jede Person kann als neuer Ausgangspunkt geöffnet werden.</p>
+<form class="search panel" action="/tree/{quote(person_id)}" method="get"><label for="depth">Anzahl der Generationen</label>
+<select id="depth" name="depth">{''.join(f'<option value="{number}"{" selected" if number == depth else ""}>{number}</option>' for number in range(2, 6))}</select>
+<button type="submit">Baum anzeigen</button></form>
+{truncation}<div class="tree"><section class="panel"><h2>Vorfahren</h2>{ancestors or '<p>Keine Vorfahren verknüpft.</p>'}</section>
 <section class="panel tree-focus"><h2>Ausgangsperson</h2><p>{person_link(person)}</p></section>
 <section class="panel"><h2>Partner</h2>{list_items([person_link(member) for member in partners])}</section>
-<section class="panel"><h2>Kinder</h2>{list_items([person_link(member) for member in children])}</section></div>'''
+<section class="panel"><h2>Nachkommen</h2>{descendants or '<p>Keine Nachkommen verknüpft.</p>'}</section></div>'''
     return layout("Familienbaum", content)
 
 
@@ -304,7 +373,10 @@ def sources_page(connection, query):
         "SELECT * FROM sources WHERE title LIKE ? COLLATE NOCASE ORDER BY title LIMIT 100", (f"%{term}%",)
     ).fetchall()
     count = connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
-    content = f'''<h1>GEDCOM-Quellen</h1><p>{count} Quelleneinträge aus dem Export. Die Zuordnung zu Archivdateien ist noch offen.</p>
+    linked = connection.execute("SELECT COUNT(DISTINCT source_id) FROM source_archive_links").fetchone()[0]
+    cited = connection.execute("SELECT COUNT(DISTINCT source_id) FROM citations").fetchone()[0]
+    content = f'''<h1>GEDCOM-Quellen</h1><p>{count} Quelleneinträge aus dem Export. {linked} mit Archivdatei verknüpft; {cited} bei Lebensereignissen zitiert.
+Dateizuordnung und historische Beweiskraft sind verschieden.</p>
 <form class="search panel" action="/sources" method="get"><label for="source-search">Quelle suchen</label>
 <div><input id="source-search" name="q" type="search" value="{escape(term, quote=True)}"><button>Suchen</button></div></form>
 <section class="panel"><h2>Quellenliste</h2>{list_items([link(source['title'], f'/source/{quote(source["id"])}') for source in sources])}</section>'''
@@ -335,6 +407,7 @@ def event_page(connection, fact_id, media_root=None):
 <section class="person-hero"><p class="eyebrow">Ereignis</p><h1>{escape(fact['kind'])}</h1>
 <p>Betroffene Person oder Familie: {event_owner(connection, fact)}</p></section>
 <section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>
+<section class="panel"><h2>Notizen</h2>{notes_html(connection, "fact", str(fact_id)) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
 <section class="panel"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(citations)}
 <h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt.</p>'}</section>'''
     return layout(fact["kind"], content)
@@ -394,9 +467,19 @@ def source_page(connection, source_id, media_root=None):
                                f'{link("Dateidetails", "/archive-file/" + str(item["archive_file_id"]))}{details}')
     fields = [("Urheber", source["author"]), ("Veröffentlichung", source["publication"]), ("Notiz", source["notes"])]
     metadata = "".join(f'<dt>{label}</dt><dd>{escape(value)}</dd>' for label, value in fields if value)
+    repositories = connection.execute(
+        "SELECT repositories.*, source_repositories.call_number FROM source_repositories "
+        "LEFT JOIN repositories ON repositories.id=source_repositories.repository_id "
+        "WHERE source_repositories.source_id=? ORDER BY repositories.name", (source_id,),
+    ).fetchall()
+    repository_items = [escape(item["name"] or "Unbekanntes Archiv")
+                        + (" · Signatur: " + escape(item["call_number"]) if item["call_number"] else "")
+                        + (" · " + escape(item["address"]) if item["address"] else "") for item in repositories]
     content = f'''<p class="back">{link('← Zu den Quellen', '/sources')}</p><h1>{escape(source['title'])}</h1>
 <p class="muted">GEDCOM-ID: {escape(source_id)} · Archivzuordnungen und ihr Prüfstatus stehen unten.</p>
 <section class="panel"><h2>Quellenangaben</h2><dl>{metadata or '<dt>Metadaten</dt><dd>Keine weiteren Angaben im GEDCOM.</dd>'}</dl></section>
+<section class="panel"><h2>Archiv oder Repositorium</h2>{list_items(repository_items)}</section>
+<section class="panel"><h2>Quellennotizen</h2>{notes_html(connection, "source", source_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
 <section class="panel"><h2>Verknüpfte Medien</h2>{media_for(connection, "source", source_id, media_root) or '<p>Keine Medien verknüpft.</p>'}</section>
 <section class="panel"><h2>Archivdokumente</h2>{list_items(archive_entries) if archive_entries else '<p>Noch keine Zuordnung zum Quellenarchiv geprüft oder eingetragen.</p>'}</section>
 <section class="panel"><h2>Belegte Ereignisse</h2>{list_items([link(fact['kind'], '/event/' + str(fact['id'])) + ' · ' + event_owner(connection, fact) for fact in cited_facts])}</section>
@@ -548,7 +631,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with closing(database(self.database_path)) as connection:
                 if route == "/":
-                    body = overview(connection, parameters.get("q", [""])[0], self.featured_person_id, self.media_root)
+                    body = overview(connection, parameters.get("q", [""])[0], self.featured_person_id, self.media_root,
+                                    parameters.get("place", [""])[0], parameters.get("year", [""])[0],
+                                    parameters.get("evidence", [""])[0])
                 elif route == "/sources":
                     body = sources_page(connection, parameters.get("q", [""])[0])
                 elif route == "/events":
@@ -569,7 +654,11 @@ class Handler(BaseHTTPRequestHandler):
                 elif re.fullmatch(r"/person/[A-Za-z0-9_-]+", route):
                     body = person_page(connection, route.rsplit("/", 1)[1], self.media_root)
                 elif re.fullmatch(r"/tree/[A-Za-z0-9_-]+", route):
-                    body = tree_page(connection, route.rsplit("/", 1)[1])
+                    try:
+                        depth = int(parameters.get("depth", ["4"])[0])
+                    except ValueError:
+                        depth = 4
+                    body = tree_page(connection, route.rsplit("/", 1)[1], depth)
                 elif re.fullmatch(r"/source/[A-Za-z0-9_-]+", route):
                     body = source_page(connection, route.rsplit("/", 1)[1], self.media_root)
                 elif re.fullmatch(r"/event/[0-9]+", route):

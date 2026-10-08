@@ -74,6 +74,58 @@ class SyntheticImportTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_notes_repositories_associations_and_research_filters(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Ada /Beispiel/
+1 BIRT
+2 DATE 3 MAY 1880
+2 PLAC Musterstadt
+2 SOUR @S1@
+2 NOTE Ereignisnotiz
+1 IMMI
+2 DATE 1901
+2 PLAC Anderstadt
+1 NOTE @N1@
+1 ASSO @I2@
+2 RELA Patin
+0 @I2@ INDI
+1 NAME Bea /Beispiel/
+1 BIRT
+2 DATE 1880
+2 PLAC Anderstadt
+0 @N1@ NOTE
+1 CONC Mehrzeilige Notiz
+0 @S1@ SOUR
+1 TITL Fiktives Register
+1 REPO @R1@
+2 CALN ABC 12
+0 @R1@ REPO
+1 NAME Stadtarchiv Musterstadt
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            connection = sqlite3.connect(database_path)
+            connection.row_factory = sqlite3.Row
+            try:
+                profile = person_page(connection, "I1")
+                self.assertIn("Mehrzeilige Notiz", profile)
+                self.assertIn("Einwanderung", profile)
+                self.assertIn("Ereignisnotiz", profile)
+                self.assertIn('<a href="/person/I2">Bea Beispiel</a> · Patin', profile)
+                source = source_page(connection, "S1")
+                self.assertIn("Stadtarchiv Musterstadt", source)
+                self.assertIn("ABC 12", source)
+                self.assertIn('href="/person/I1"', overview(connection, "", place="Musterstadt", year="1880"))
+                self.assertNotIn('href="/person/I2"', overview(connection, "", place="Musterstadt", year="1880"))
+                self.assertIn('href="/person/I1"', overview(connection, "", evidence="with"))
+                self.assertNotIn('href="/person/I2"', overview(connection, "", evidence="with"))
+            finally:
+                connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()

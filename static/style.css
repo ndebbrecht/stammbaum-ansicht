@@ -42,7 +42,7 @@ h4 { margin: 1rem 0 .3rem; }
 p { margin: .4rem 0 1rem; }
 a { color: var(--accent); text-underline-offset: .2em; text-decoration-thickness: 1.5px; }
 a:hover { text-decoration-thickness: 2.5px; }
-a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 .skip { position: absolute; z-index: 10; top: -6rem; left: 1rem; padding: .75rem 1rem; background: var(--surface); }
 .skip:focus { top: 1rem; }
 .panel, .featured { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: clamp(1.25rem, 3vw, 2rem); box-shadow: 0 12px 36px rgba(20,48,42,.07); }
@@ -53,8 +53,11 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
 .featured-symbol { font-size: 8rem; color: var(--gold); text-align: center; }
 .featured-copy > p:last-child a { display: inline-block; background: var(--accent); color: var(--accent-ink); padding: .75rem 1.1rem; border-radius: 10px; text-decoration: none; font-weight: 700; }
 .search label { display: block; font-weight: 750; margin-bottom: .6rem; }
+.search label:not(:first-child) { margin-top: 1rem; }
 .search div { display: flex; flex-wrap: wrap; gap: .65rem; }
+.search > input { display: block; width: 100%; }
 input { font: inherit; color: var(--ink); background: var(--surface); flex: 1 1 16rem; min-width: 0; padding: .8rem 1rem; border: 1.5px solid var(--border); border-radius: 10px; }
+select { font: inherit; color: var(--ink); background: var(--surface); display: block; width: 100%; padding: .8rem 1rem; border: 1.5px solid var(--border); border-radius: 10px; }
 button { font: inherit; font-weight: 750; background: var(--accent); color: var(--accent-ink); padding: .8rem 1.25rem; border: 0; border-radius: 10px; cursor: pointer; }
 button:hover, .featured-copy > p:last-child a:hover { filter: brightness(1.12); }
 .muted { color: var(--muted); }
@@ -87,8 +90,11 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .pagination { display: flex; gap: 1rem; padding-block: 1rem; }
 .tree { display: grid; gap: 1rem; max-width: 54rem; margin-inline: auto; }
 .tree > section { position: relative; margin: 0; border-left: 5px solid var(--border); }
-.tree > section:not(:last-child)::after { content: ""; position: absolute; left: 50%; bottom: -1.1rem; width: 2px; height: 1.1rem; background: var(--accent); }
 .tree-focus { border-left-color: var(--gold) !important; background: var(--soft); }
+.tree-branches { columns: 1 !important; list-style: none; margin: .75rem 0; padding-left: 1rem; border-left: 2px solid var(--border); }
+.tree-branches .tree-branches { margin: .5rem 0 .5rem .25rem; }
+.tree-branches > li { padding: .35rem .5rem; break-inside: avoid; }
+.generation { display: block; color: var(--muted); font-size: .8rem; }
 .connection-path { padding-left: 1.5rem; }
 .connection-path li { padding: .45rem .7rem; border-left: 3px solid var(--gold); background: var(--soft); border-radius: 0 9px 9px 0; }
 .transcription { white-space: pre-wrap; overflow-wrap: anywhere; }

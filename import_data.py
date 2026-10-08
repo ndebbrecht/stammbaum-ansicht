@@ -23,12 +23,20 @@ CREATE TABLE archive_files (id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL 
 CREATE TABLE source_archive_links (source_id TEXT NOT NULL, archive_file_id INTEGER NOT NULL,
     page INTEGER, status TEXT NOT NULL, note TEXT, transcription TEXT,
     PRIMARY KEY (source_id, archive_file_id, page));
+CREATE TABLE notes (id TEXT PRIMARY KEY, text TEXT NOT NULL);
+CREATE TABLE note_links (owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, note_id TEXT, text TEXT);
+CREATE TABLE repositories (id TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT);
+CREATE TABLE source_repositories (source_id TEXT NOT NULL, repository_id TEXT NOT NULL,
+    call_number TEXT, PRIMARY KEY (source_id, repository_id));
+CREATE TABLE associations (person_id TEXT NOT NULL, other_person_id TEXT NOT NULL, relation TEXT);
 CREATE INDEX facts_owner ON facts(owner_type, owner_id);
 CREATE INDEX citations_fact ON citations(fact_id);
 CREATE INDEX media_links_owner ON media_links(owner_type, owner_id);
 CREATE INDEX archive_files_path ON archive_files(relative_path);
 CREATE INDEX archive_files_size ON archive_files(size_bytes);
 CREATE INDEX source_archive_links_source ON source_archive_links(source_id);
+CREATE INDEX note_links_owner ON note_links(owner_type, owner_id);
+CREATE INDEX associations_person ON associations(person_id);
 """
 
 FACT_NAMES = {
@@ -38,6 +46,10 @@ FACT_NAMES = {
     "EDUC": "Ausbildung", "GRAD": "Abschluss", "ENGA": "Verlobung",
     "MARL": "Aufgebot", "MARB": "Aufgebot", "MRCI": "Kirchliche Trauung",
     "MRRE": "Hochzeitsfeier",
+    "ADOP": "Adoption", "EMIG": "Auswanderung", "IMMI": "Einwanderung",
+    "CENS": "Volkszählung", "NATU": "Einbürgerung", "RETI": "Ruhestand",
+    "CONF": "Konfirmation", "CREM": "Einäscherung", "WILL": "Testament",
+    "PROB": "Nachlassverfahren", "ANUL": "Annullierung", "DIVF": "Scheidungsantrag",
 }
 DOCUMENT_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
@@ -106,6 +118,17 @@ def add_fact(database, owner_type, owner_id, kind, node):
                 (fact_id, citation.value.strip("@"), citation.text("PAGE"), citation.text("DATA")),
             )
     add_media_links(database, "fact", str(fact_id), node)
+    add_note_links(database, "fact", str(fact_id), node)
+
+
+def add_note_links(database, owner_type, owner_id, node):
+    for note in node.all("NOTE"):
+        reference = note.value.startswith("@") and note.value.endswith("@")
+        database.execute(
+            "INSERT INTO note_links VALUES (?,?,?,?)",
+            (owner_type, owner_id, note.value.strip("@") if reference else None,
+             None if reference else note.value),
+        )
 
 
 def add_media_links(database, owner_type, owner_id, node):
@@ -142,6 +165,11 @@ def import_gedcom(database, path):
                     add_fact(database, "person", record_id, node.tag, node)
             add_media_links(database, "person", record_id, record)
             add_record_citations(database, "person", record_id, record)
+            add_note_links(database, "person", record_id, record)
+            for association in record.all("ASSO"):
+                if association.value.startswith("@") and association.value.endswith("@"):
+                    database.execute("INSERT INTO associations VALUES (?,?,?)",
+                                     (record_id, association.value.strip("@"), association.text("RELA")))
         elif record.tag == "FAM":
             database.execute(
                 "INSERT INTO families VALUES (?,?,?)",
@@ -154,13 +182,19 @@ def import_gedcom(database, path):
                     add_fact(database, "family", record_id, node.tag, node)
             add_media_links(database, "family", record_id, record)
             add_record_citations(database, "family", record_id, record)
+            add_note_links(database, "family", record_id, record)
         elif record.tag == "SOUR":
             database.execute(
                 "INSERT INTO sources VALUES (?,?,?,?,?)",
                 (record_id, record.text("TITL") or f"Quelle {record_id}", record.text("AUTH"),
-                 record.text("PUBL"), record.text("TEXT") or record.text("NOTE")),
+                 record.text("PUBL"), record.text("TEXT")),
             )
             add_media_links(database, "source", record_id, record)
+            add_note_links(database, "source", record_id, record)
+            for repository in record.all("REPO"):
+                if repository.value.startswith("@") and repository.value.endswith("@"):
+                    database.execute("INSERT OR IGNORE INTO source_repositories VALUES (?,?,?)",
+                                     (record_id, repository.value.strip("@"), repository.text("CALN")))
         elif record.tag == "OBJE":
             file_name = record.text("FILE")
             safe_name = Path(file_name).name if file_name and not Path(file_name).is_absolute() else ""
@@ -171,6 +205,11 @@ def import_gedcom(database, path):
                 (record_id, record.text("TITL") or safe_name or f"Medium {record_id}",
                  safe_name or None, mimetypes.guess_type(safe_name)[0] if safe_name else None),
             )
+        elif record.tag == "NOTE":
+            database.execute("INSERT INTO notes VALUES (?,?)", (record_id, record.value))
+        elif record.tag == "REPO":
+            database.execute("INSERT INTO repositories VALUES (?,?,?)",
+                             (record_id, record.text("NAME") or f"Archiv {record_id}", record.text("ADDR")))
 
 
 def index_archive(database, archive_root):
