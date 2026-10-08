@@ -20,6 +20,24 @@ from auth import verify_password
 
 ROOT = Path(__file__).parent
 STYLE = (ROOT / "static" / "style.css").read_bytes()
+MAP_SCRIPT = (ROOT / "static" / "map.js").read_bytes()
+
+STATE_CODES = {
+    "baden-württemberg": "BW", "bayern": "BY", "berlin": "BE", "brandenburg": "BB",
+    "bremen": "HB", "hamburg": "HH", "hessen": "HE", "mecklenburg-vorpommern": "MV",
+    "niedersachsen": "NI", "nordrhein-westfalen": "NW", "rheinland-pfalz": "RP",
+    "saarland": "SL", "sachsen": "SN", "sachsen-anhalt": "ST", "schleswig-holstein": "SH",
+    "thüringen": "TH",
+}
+COUNTRY_CODES = {
+    "deutschland": "DE", "germany": "DE", "österreich": "AT", "austria": "AT",
+    "schweiz": "CH", "switzerland": "CH", "frankreich": "FR", "france": "FR",
+    "niederlande": "NL", "netherlands": "NL", "belgien": "BE", "belgium": "BE",
+    "polen": "PL", "poland": "PL", "dänemark": "DK", "denmark": "DK",
+    "italien": "IT", "italy": "IT", "spanien": "ES", "spain": "ES",
+    "vereinigtes königreich": "GB", "united kingdom": "GB", "england": "GB",
+    "vereinigte staaten": "US", "united states": "US", "usa": "US",
+}
 
 
 def link(label, route):
@@ -32,6 +50,19 @@ def person_link(person):
 
 def list_items(items):
     return "<ul>" + "".join(f"<li>{item}</li>" for item in items) + "</ul>" if items else "<p>Keine Einträge.</p>"
+
+
+def place_parts(place):
+    return [part.strip() for part in place.split(",") if part.strip()]
+
+
+def format_place(place):
+    parts = place_parts(place)
+    if not parts:
+        return ""
+    parts[-1] = COUNTRY_CODES.get(parts[-1].casefold(), parts[-1])
+    parts = [STATE_CODES.get(part.casefold(), part) for part in parts]
+    return ", ".join(parts)
 
 
 def layout(title, content):
@@ -77,7 +108,7 @@ def overview(connection, query, featured_person_id=None, media_root=None, place=
     featured = connection.execute("SELECT * FROM people WHERE id=?", (featured_person_id,)).fetchone() if featured_person_id else None
     featured_html = ""
     if featured:
-        featured_media = media_for(connection, "person", featured["id"], media_root, limit=1, portrait=True)
+        featured_media = portrait_figure(featured, person_image(connection, featured["id"], media_root), "media-card")
         featured_html = f'''<section class="featured{' has-portrait' if featured_media else ''}" aria-labelledby="featured-title"><div class="featured-copy">
 <p class="eyebrow">Startperson</p><h2 id="featured-title">{escape(featured['name'])}</h2>
 <p>Festgelegter Ausgangspunkt für Personen, Ereignisse und Quellen.</p>
@@ -99,14 +130,14 @@ def overview(connection, query, featured_person_id=None, media_root=None, place=
     return layout("Personen", content)
 
 
-def media_for(connection, owner_type, owner_id, media_root=None, limit=None, portrait=False):
+def media_for(connection, owner_type, owner_id, media_root=None):
     media = connection.execute(
         "SELECT media.* FROM media_links JOIN media ON media.id=media_links.media_id "
         "WHERE media_links.owner_type=? AND media_links.owner_id=? ORDER BY media.title",
         (owner_type, owner_id),
     ).fetchall()
     entries = []
-    for item in media[:limit] if limit else media:
+    for item in media:
         name = item["relative_path"]
         available = bool(name and media_root and (Path(media_root) / name).is_file())
         if available:
@@ -116,11 +147,38 @@ def media_for(connection, owner_type, owner_id, media_root=None, limit=None, por
                                f'<figcaption>{escape(item["title"])}</figcaption></figure>')
             else:
                 entries.append(f'<div class="media-card document">{link("Dokument öffnen: " + item["title"], route)}</div>')
-        elif not portrait:
+        else:
             entries.append(f'<p class="muted">{escape(item["title"])} · Datei im Export nicht verfügbar</p>')
-    if portrait:
-        return entries[0] if entries and "<img " in entries[0] else ""
     return '<div class="media-grid">' + "".join(entries) + '</div>' if entries else ""
+
+
+def person_image(connection, person_id, media_root):
+    if not media_root:
+        return None
+    root = Path(media_root).resolve()
+    images = connection.execute(
+        "SELECT media.* FROM media_links JOIN media ON media.id=media_links.media_id "
+        "WHERE media_links.owner_type='person' AND media_links.owner_id=? "
+        "AND media.mime_type LIKE 'image/%' ORDER BY media.title", (person_id,)
+    ).fetchall()
+    images.sort(key=lambda item: (not any(word in item["title"].casefold()
+                                          for word in ("portr", "profil", "foto")), item["title"].casefold()))
+    for item in images:
+        if item["relative_path"]:
+            path = (root / item["relative_path"]).resolve()
+            if path.is_relative_to(root) and path.is_file():
+                return item
+    return None
+
+
+def portrait_figure(person, image, css_class):
+    if not image:
+        return ""
+    route = f'/media/{quote(image["id"])}'
+    title = escape(image["title"])
+    alt = escape(f'Bild zu {person["name"]}: {image["title"]}', quote=True)
+    return (f'<figure class="{css_class}"><a href="{route}"><img src="{route}" alt="{alt}"></a>'
+            f'<figcaption>{title}</figcaption></figure>')
 
 
 def citations_for(connection, owner_type, owner_id):
@@ -143,6 +201,11 @@ def citations_html(citations):
     ]) if citations else '<p class="unverified">Kein GEDCOM-Quellenverweis vorhanden.</p>'
 
 
+def citation_marker(route, label):
+    return (f'<a class="citation-clip" href="{escape(route, quote=True)}">'
+            f'<span aria-hidden="true">📎</span><span class="sr-only">{escape(label)}</span></a>')
+
+
 def notes_html(connection, owner_type, owner_id):
     notes = connection.execute(
         "SELECT COALESCE(notes.text, note_links.text) AS text FROM note_links "
@@ -162,12 +225,13 @@ def facts_html(connection, owner_type, owner_id, media_root=None):
     entries = []
     for fact in facts:
         citations = citations_for(connection, "fact", str(fact["id"]))
-        details = ", ".join(escape(value) for value in (fact["date_text"], fact["place"], fact["value"]) if value)
+        details = ", ".join(escape(value) for value in (fact["date_text"], format_place(fact["place"] or ""), fact["value"]) if value)
         media = media_for(connection, "fact", str(fact["id"]), media_root)
         notes = notes_html(connection, "fact", str(fact["id"]))
-        evidence = f'<div class="evidence"><strong>Quellen</strong>{citations_html(citations)}</div>' if citations else '<p class="unverified">Kein GEDCOM-Quellenverweis vorhanden.</p>'
-        entries.append(f'<li><article class="fact-card"><h3>{link(fact["kind"], "/event/" + str(fact["id"]))}</h3><p>{details or "Ohne weitere Angabe"}</p>'
-                       f'{notes}{media}{evidence}</article></li>')
+        source_link = citation_marker(f'/event/{fact["id"]}#sources',
+                                      f'{len(citations)} Quelle(n) zu {fact["kind"]} anzeigen') if citations else ''
+        entries.append(f'<li><article class="fact-card"><h3>{link(fact["kind"], "/event/" + str(fact["id"]))}{source_link}</h3><p>{details or "Ohne weitere Angabe"}</p>'
+                       f'{notes}{media}</article></li>')
     return '<ol class="facts">' + "".join(entries) + "</ol>"
 
 
@@ -214,6 +278,9 @@ def person_page(connection, person_id, media_root=None):
                             f'{facts_html(connection, "family", family["id"], media_root)}</article>' for family in own_families)
     direct_media = media_for(connection, "person", person_id, media_root)
     direct_citations = citations_for(connection, "person", person_id)
+    direct_source_links = ''.join(citation_marker(f'/source/{quote(citation["source_id"])}',
+                                                 f'Quelle zur Person öffnen: {citation["title"] or citation["source_id"]}')
+                                  for citation in direct_citations)
     fact_ids = [str(row["id"]) for row in connection.execute(
         "SELECT id FROM facts WHERE owner_type='person' AND owner_id=?", (person_id,)
     )]
@@ -222,29 +289,44 @@ def person_page(connection, person_id, media_root=None):
         "SELECT people.*, associations.relation FROM associations JOIN people ON people.id=associations.other_person_id "
         "WHERE associations.person_id=? ORDER BY people.name", (person_id,),
     ).fetchall()
+    relatives = [person, *parents.values(), *partners.values(), *children.values(), *siblings.values()]
+    images = {member["id"]: person_image(connection, member["id"], media_root) for member in relatives}
+
+    def preview(member):
+        image = images[member["id"]]
+        if not image:
+            return ""
+        return f'<img class="person-preview" src="/media/{quote(image["id"])}" alt="" loading="lazy">'
+
+    def relative_link(member):
+        return (f'<a href="/person/{quote(member["id"])}">{preview(member)}'
+                f'<span>{escape(member["name"])}</span></a>')
+
     def relation_rail(heading, people, side, variant=""):
-        items = ''.join(f'<li>{person_link(member)}</li>' for member in people.values())
+        items = ''.join(f'<li>{relative_link(member)}</li>' for member in people.values())
         return (f'<nav class="relation-rail relation-rail-{side}{" " + variant if variant else ""}" aria-label="{heading}">'
                 f'<h2>{heading}</h2>'
                 + (f'<ul>{items}</ul>' if items else f'<p>Keine {heading.lower()} verknüpft.</p>') + '</nav>')
 
     partner_links = ''.join(f'<a class="partner-link" href="/person/{quote(member["id"])}">'
-                            f'Partner: {escape(member["name"])}</a>' for member in partners.values())
-    sibling_links = ''.join(f'<li>{person_link(member)}</li>' for member in siblings.values())
+                            f'{preview(member)}<span>Partner: {escape(member["name"])}</span></a>' for member in partners.values())
+    sibling_links = ''.join(f'<li>{relative_link(member)}</li>' for member in siblings.values())
     sibling_section = (f'<nav class="sibling-strip" aria-label="Geschwister"><h2>Geschwister</h2>'
                        f'<ul>{sibling_links}</ul></nav>') if siblings else ''
     content = f'''<div class="person-layout">{relation_rail("Eltern", parents, "parents")}
 {relation_rail("Kinder", children, "children", "mobile-children")}
 <div class="person-content"><p class="back">{link('← Zur Startseite', '/')}</p>
-<section class="person-hero"><p class="eyebrow">Personenprofil</p><div class="person-heading"><h1>{escape(person["name"])}</h1>
+<section class="person-hero{' has-portrait' if images[person_id] else ''}"><div class="profile-summary"><div><p class="eyebrow">Personenprofil</p><div class="person-heading"><h1>{escape(person["name"])}</h1>
 {f'<div class="partner-actions">{partner_links}</div>' if partner_links else ''}</div>
-<p>Lebensereignisse, Quellen und Medien aus dem importierten GEDCOM.</p></section>
+<p>Lebensereignisse, Quellen und Medien aus dem importierten GEDCOM.</p></div>
+{portrait_figure(person, images[person_id], "profile-portrait")}</div></section>
 {sibling_section}
 <nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#relations">Beziehungen</a></nav>
 <div class="columns"><section class="panel" id="events" aria-labelledby="events-title"><h2 id="events-title">Lebensereignisse</h2>{facts_html(connection, "person", person_id, media_root)}</section>
 <section class="panel" id="family-events" aria-labelledby="family-events-title"><h2 id="family-events-title">Partnerschaft & Hochzeit</h2>{family_events or '<p>Keine gemeinsamen Ereignisse im GEDCOM verzeichnet.</p>'}</section></div>
 <section class="panel" id="media" aria-labelledby="media-title"><h2 id="media-title">Medien & Quellen</h2>
-{direct_media or '<p>Keine direkt zugeordneten Medien.</p>'}<h3>Direkte Quellenverweise</h3>{citations_html(direct_citations)}
+{direct_media or '<p>Keine direkt zugeordneten Medien.</p>'}
+{f'<h3>Direkte Quellenverweise</h3><div class="citation-clips">{direct_source_links}</div>' if direct_source_links else ''}
 <h3>Dokumente zu Lebensereignissen</h3>{fact_media or '<p>Keine weiteren Dokumente zu Lebensereignissen.</p>'}</section>
 {f'<section class="panel"><h2>Medien zu Familien</h2>{"".join(family_media)}</section>' if family_media else ''}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "person", person_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
@@ -455,17 +537,23 @@ def event_page(connection, fact_id, media_root=None):
     fact = connection.execute("SELECT * FROM facts WHERE id=?", (fact_id,)).fetchone()
     if not fact:
         return None
-    fields = [("Datum", fact["date_text"]), ("Ort", fact["place"]), ("Angabe", fact["value"])]
+    fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")), ("Angabe", fact["value"])]
     details = "".join(f'<dt>{label}</dt><dd>{escape(value)}</dd>' for label, value in fields if value)
     citations = citations_for(connection, "fact", str(fact_id))
     media = media_for(connection, "fact", str(fact_id), media_root)
+    map_query = ", ".join(place_parts(fact["place"] or ""))[:500]
+    map_section = (f'<section class="panel event-map" aria-labelledby="map-title"><h2 id="map-title">Karte</h2>'
+                   f'<p>Die Karte wird erst auf Wunsch geladen. Dabei wird der Ort an Google Maps übermittelt.</p>'
+                   f'<button type="button" class="load-map" data-map-query="{escape(map_query, quote=True)}">Karte laden</button>'
+                   f'<div class="map-container"></div><p>{link("Ort in Google Maps öffnen →", "https://www.google.com/maps/search/?api=1&query=" + quote(map_query))}</p>'
+                   f'</section><script src="/static/map.js" defer></script>') if map_query else ""
     content = f'''<p class="back">{link('← Zu den Ereignissen', '/events')}</p>
 <section class="person-hero"><p class="eyebrow">Ereignis</p><h1>{escape(fact['kind'])}</h1>
 <p>Betroffene Person oder Familie: {event_owner(connection, fact)}</p></section>
 <section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "fact", str(fact_id)) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
-<section class="panel"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(citations)}
-<h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt.</p>'}</section>'''
+<section class="panel" id="sources"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(citations)}
+<h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt.</p>'}</section>{map_section}'''
     return layout(fact["kind"], content)
 
 
@@ -477,10 +565,13 @@ def events_page(connection, query, page):
     values = (pattern,) * 4
     count = connection.execute(f"SELECT COUNT(*) FROM facts {filter_sql}", values).fetchone()[0]
     facts = connection.execute(
-        f"SELECT * FROM facts {filter_sql} ORDER BY id DESC LIMIT 50 OFFSET ?", (*values, (page - 1) * 50)
+        f"SELECT facts.*, (SELECT COUNT(*) FROM citations WHERE fact_id=facts.id) AS citation_count "
+        f"FROM facts {filter_sql} ORDER BY id DESC LIMIT 50 OFFSET ?", (*values, (page - 1) * 50)
     ).fetchall()
     entries = [f'{link(fact["kind"], "/event/" + str(fact["id"]))} · '
-               f'{escape(fact["date_text"] or "ohne Datum")} · {event_owner(connection, fact)}' for fact in facts]
+               f'{escape(fact["date_text"] or "ohne Datum")} · {event_owner(connection, fact)} '
+               + (citation_marker(f'/event/{fact["id"]}#sources', f'{fact["citation_count"]} Quelle(n) zu {fact["kind"]} anzeigen')
+                  if fact["citation_count"] else '') for fact in facts]
     previous = link("← Vorherige", f'/events?q={quote(term)}&page={page - 1}') if page > 1 else ""
     following = link("Nächste →", f'/events?q={quote(term)}&page={page + 1}') if page * 50 < count else ""
     content = f'''<h1>Ereignisse</h1><p>{count} Einträge gefunden.</p>
@@ -636,7 +727,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; frame-src https://maps.google.com https://www.google.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -684,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
         parameters = parse_qs(parsed.query)
         if route == "/static/style.css":
             return self.send_page(STYLE, content_type="text/css; charset=utf-8")
+        if route == "/static/map.js":
+            return self.send_page(MAP_SCRIPT, content_type="application/javascript; charset=utf-8")
         try:
             with closing(database(self.database_path)) as connection:
                 if route == "/":

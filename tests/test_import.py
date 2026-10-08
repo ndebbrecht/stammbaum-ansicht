@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from import_data import build
-from app import overview, person_page, source_page
+from app import event_page, overview, person_page, source_page
 
 
 class SyntheticImportTest(unittest.TestCase):
@@ -20,8 +20,10 @@ class SyntheticImportTest(unittest.TestCase):
                 child = person_page(connection, "I3")
                 self.assertIn("Ada Beispiel", child)
                 self.assertIn("Ben Beispiel", child)
-                self.assertIn("Kein GEDCOM-Quellenverweis", person_page(connection, "I2") or "")
-                self.assertIn("Fiktives Geburtsregister", person_page(connection, "I1") or "")
+                self.assertNotIn("Kein GEDCOM-Quellenverweis", person_page(connection, "I2") or "")
+                self.assertIn('class="citation-clip"', person_page(connection, "I1") or "")
+                self.assertNotIn("Fiktives Geburtsregister", person_page(connection, "I1") or "")
+                self.assertIn("Fiktives Geburtsregister", event_page(connection, 1) or "")
                 self.assertIn("Ada Beispiel", source_page(connection, "S1") or "")
             finally:
                 connection.close()
@@ -67,10 +69,12 @@ class SyntheticImportTest(unittest.TestCase):
                 self.assertIn("Verlobung", profile)
                 self.assertIn("Kirchliche Trauung", profile)
                 self.assertIn('src="/media/M1"', profile)
+                self.assertIn('class="profile-portrait"', profile)
                 self.assertIn('href="/media/M2"', profile)
                 home = overview(connection, "", "I1", root)
                 self.assertIn("Startperson", home)
                 self.assertIn('href="/person/I1"', home)
+                self.assertIn('src="/media/M1"', home)
             finally:
                 connection.close()
 
