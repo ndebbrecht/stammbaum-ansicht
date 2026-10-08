@@ -39,7 +39,7 @@ def layout(title, content):
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(title)} · Stammbaum</title><meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/static/style.css"></head>
 <body><a class="skip" href="#inhalt">Zum Inhalt springen</a>
-<header class="site-header"><div class="shell header-inner"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✦</span> Stammbaum</a><nav aria-label="Hauptnavigation">
+<header class="site-header"><div class="shell header-inner"><a class="brand" href="/">Stammbaum</a><nav aria-label="Hauptnavigation">
 <a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/sources">Quellen</a><a href="/archive">Archiv</a></nav></div></header>
 <main id="inhalt" class="shell" tabindex="-1">{content}</main>
 <footer class="shell">Private Leseansicht · Angaben aus dem GEDCOM sind nicht automatisch geprüft. · Darstellung folgt dem Hell-/Dunkelmodus des Geräts.</footer></body></html>'''
@@ -78,22 +78,22 @@ def overview(connection, query, featured_person_id=None, media_root=None, place=
     featured_html = ""
     if featured:
         featured_media = media_for(connection, "person", featured["id"], media_root, limit=1, portrait=True)
-        featured_html = f'''<section class="featured" aria-labelledby="featured-title"><div class="featured-copy">
-<p class="eyebrow">Deine Startperson</p><h2 id="featured-title">{escape(featured['name'])}</h2>
-<p>Hier beginnt deine Reise durch Familie, Ereignisse, Bilder und Quellen.</p>
-<p>{link('Meine Seite öffnen →', f'/person/{quote(featured["id"])}')}</p></div>{featured_media}</section>'''
-    content = f'''<section class="intro"><p class="eyebrow">Private Familiengeschichte</p><h1>Menschen. Geschichten. Verbindungen.</h1>
-<p>Entdecke {count} Personen und die Spuren, die sie miteinander verbinden.</p></section>
-{featured_html}<form class="search panel" action="/" method="get"><h2>Personen recherchieren</h2>
-<label for="name">Name</label><input id="name" name="q" type="search" value="{escape(term, quote=True)}" autocomplete="off">
-<label for="place">Ort eines Lebensereignisses</label><input id="place" name="place" type="search" value="{escape(place, quote=True)}">
-<label for="year">Jahr eines Lebensereignisses</label><input id="year" name="year" type="text" inputmode="numeric" pattern="[0-9]{{4}}" maxlength="4" value="{escape(year, quote=True)}">
-<label for="evidence">GEDCOM-Quellenverweis zu einem Lebensereignis</label><select id="evidence" name="evidence">
+        featured_html = f'''<section class="featured{' has-portrait' if featured_media else ''}" aria-labelledby="featured-title"><div class="featured-copy">
+<p class="eyebrow">Startperson</p><h2 id="featured-title">{escape(featured['name'])}</h2>
+<p>Festgelegter Ausgangspunkt für Personen, Ereignisse und Quellen.</p>
+<p>{link('Personenprofil öffnen →', f'/person/{quote(featured["id"])}')}</p></div>{featured_media}</section>'''
+    content = f'''<section class="intro"><p class="eyebrow">Familienforschung</p><h1>Familienarchiv</h1>
+<p>{count} Personen im importierten Stammbaum.</p></section>
+{featured_html}<form class="search panel" action="/" method="get"><h2>Personen suchen</h2>
+<div class="search-fields"><div class="form-field"><label for="name">Name</label><input id="name" name="q" type="search" value="{escape(term, quote=True)}" autocomplete="off"></div>
+<div class="form-field"><label for="place">Ort eines Lebensereignisses</label><input id="place" name="place" type="search" value="{escape(place, quote=True)}"></div>
+<div class="form-field"><label for="year">Jahr eines Lebensereignisses</label><input id="year" name="year" type="text" inputmode="numeric" pattern="[0-9]{{4}}" maxlength="4" value="{escape(year, quote=True)}"></div>
+<div class="form-field"><label for="evidence">Quellenverweis</label><select id="evidence" name="evidence">
 <option value="">Alle</option><option value="with"{' selected' if evidence == 'with' else ''}>Mit Quellenverweis</option>
-<option value="without"{' selected' if evidence == 'without' else ''}>Ohne Quellenverweis</option></select>
+<option value="without"{' selected' if evidence == 'without' else ''}>Ohne Quellenverweis</option></select></div></div>
 <p class="muted">Ort und Jahr müssen im selben Lebensereignis vorkommen. Ein Quellenverweis bedeutet keine historische Prüfung.</p>
 <button type="submit">Suchen</button></form>
-<section class="panel" aria-labelledby="results"><h2 id="results">{'Suchergebnisse' if filtered else 'Personen entdecken'}</h2>
+<section class="panel" aria-labelledby="results"><h2 id="results">{'Suchergebnisse' if filtered else 'Personenverzeichnis'}</h2>
 <p class="muted">{len(people)} Treffer angezeigt{' · maximal 100' if filtered else ' · für alle Personen die Suche verwenden'}.</p>
 {list_items([person_link(person) for person in people])}</section>'''
     return layout("Personen", content)
@@ -119,7 +119,7 @@ def media_for(connection, owner_type, owner_id, media_root=None, limit=None, por
         elif not portrait:
             entries.append(f'<p class="muted">{escape(item["title"])} · Datei im Export nicht verfügbar</p>')
     if portrait:
-        return entries[0] if entries and "<img " in entries[0] else '<div class="featured-symbol" aria-hidden="true">✦</div>'
+        return entries[0] if entries and "<img " in entries[0] else ""
     return '<div class="media-grid">' + "".join(entries) + '</div>' if entries else ""
 
 
@@ -238,7 +238,7 @@ def person_page(connection, person_id, media_root=None):
 <div class="person-content"><p class="back">{link('← Zur Startseite', '/')}</p>
 <section class="person-hero"><p class="eyebrow">Personenprofil</p><div class="person-heading"><h1>{escape(person["name"])}</h1>
 {f'<div class="partner-actions">{partner_links}</div>' if partner_links else ''}</div>
-<p>Familie, Lebensereignisse und überlieferte Dokumente auf einen Blick.</p></section>
+<p>Lebensereignisse, Quellen und Medien aus dem importierten GEDCOM.</p></section>
 {sibling_section}
 <nav class="section-nav" aria-label="Profilbereiche"><a href="#events">Ereignisse</a><a href="#family-events">Partnerschaft</a><a href="#media">Medien & Quellen</a><a href="#relations">Beziehungen</a></nav>
 <div class="columns"><section class="panel" id="events" aria-labelledby="events-title"><h2 id="events-title">Lebensereignisse</h2>{facts_html(connection, "person", person_id, media_root)}</section>
@@ -406,7 +406,7 @@ def tree_page(connection, person_id, depth=3):
     initials = "".join(part[0] for part in person["name"].split()[:2]).upper()
     content = f'''<div class="tree-page"><p class="back">{link('← Zur Person', '/person/' + quote(person_id))}</p>
 <header class="tree-toolbar"><div><p class="eyebrow">Familienlinien</p><h1>Familienbaum</h1>
-<p>Vorfahren, Ausgangsperson und Nachkommen auf einen Blick.</p></div>
+<p>Vorfahren und Nachkommen der Ausgangsperson.</p></div>
 <form class="tree-controls" action="/tree/{quote(person_id)}" method="get"><label for="depth">Generationen</label>
 <select id="depth" name="depth">{''.join(f'<option value="{number}"{" selected" if number == depth else ""}>{number}</option>' for number in range(2, 6))}</select>
 <button type="submit">Anzeigen</button></form></header>

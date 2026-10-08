@@ -140,6 +140,7 @@ gehört in die private Serverkonfiguration, nicht in den öffentlichen Code.
 - Verlobung und weitere Familienereignisse auf den beteiligten Personenseiten
 - Verknüpfte Bilder und Dokumente aus GEDCOM-Medienobjekten
 - Automatischer Hell-/Dunkelmodus gemäß Geräteeinstellung
+- Reduziertes Archivdesign mit klaren Datenbereichen, sichtbaren Tastaturfokussen und responsiver Darstellung ohne seitliches Scrollen
 - Dauerhafte Startperson per privater Serveroption
 - Getrenntes, nach Dateinamen durchsuchbares Dokumentenarchiv
 - Deutliche Kennzeichnung fehlender Belege und offener Original-Zuordnungen

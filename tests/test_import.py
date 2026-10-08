@@ -69,7 +69,7 @@ class SyntheticImportTest(unittest.TestCase):
                 self.assertIn('src="/media/M1"', profile)
                 self.assertIn('href="/media/M2"', profile)
                 home = overview(connection, "", "I1", root)
-                self.assertIn("Deine Startperson", home)
+                self.assertIn("Startperson", home)
                 self.assertIn('href="/person/I1"', home)
             finally:
                 connection.close()
