@@ -70,6 +70,7 @@ class FeatureTest(unittest.TestCase):
 4 LONG E7.123456
 1 LATR
 2 DATE 2 JAN 1900
+1 MIAW Musterorden
 0 TRLR
 """
         with tempfile.TemporaryDirectory() as directory:
@@ -77,18 +78,26 @@ class FeatureTest(unittest.TestCase):
             (root / "family.ged").write_text(gedcom)
             database_path = root / "family.sqlite"
             counts = build(root / "family.ged", database_path)
-            self.assertEqual(counts["facts"], 2)
+            self.assertEqual(counts["facts"], 3)
             with database(database_path) as connection:
                 profile = person_page(connection, "I1")
                 self.assertIn("MacFamilyTree-Ereignis MISE", profile)
                 self.assertIn("Letzte Ölung", profile)
+                self.assertIn("Militärische Auszeichnung", profile)
                 self.assertIn("Koordinaten aus dem GEDCOM", event_page(connection, 1))
 
     def test_export_details_and_event_icons_keep_readable_labels(self):
         gedcom = """0 @I1@ INDI
 1 NAME Ada /Beispiel/
+2 TYPE maiden
+2 _CRE 1 JAN 2020
+2 CHAN 2 JAN 2020
+1 SEX F
+1 _FID ABC12345
 1 EMAIL ada@example.invalid
+2 CHAN 3 JAN 2020
 1 RELI Beispielglaube
+2 _CRE 4 JAN 2020
 1 _UNSUPPORTED Beispielwert
 1 BIRT
 2 DATE 1 JAN 1900
@@ -104,12 +113,21 @@ class FeatureTest(unittest.TestCase):
             with database(database_path) as connection:
                 profile = person_page(connection, "I1")
                 self.assertIn('class="detail-grid"', profile)
-                for label in ("Namen und Kennungen", "Kontakt", "Lebensumfeld", "Weitere Exportfelder",
-                              "ada@example.invalid", "Beispielglaube", "Beispielwert", "Geburt", "Datum", "Ort"):
+                for label in ("Name", "Geburtsname", "Geschlecht", "weiblich", "E-Mail", "Religion",
+                              "ada@example.invalid", "Beispielglaube", "Exportfeld _UNSUPPORTED",
+                              "Beispielwert", "Geburt", "Datum", "Ort"):
                     self.assertIn(label, profile)
-                self.assertNotIn("(NAME)", profile)
-                self.assertIn("(_UNSUPPORTED)", profile)
+                self.assertNotIn("ABC12345", profile)
+                self.assertNotIn("1 JAN 2020", profile)
+                self.assertNotIn("2 JAN 2020", profile)
+                self.assertNotIn("3 JAN 2020", profile)
+                self.assertNotIn("4 JAN 2020", profile)
+                self.assertIn('class="tile-icon"', profile)
+                self.assertIn('class="fact-card"', profile)
                 self.assertIn('aria-hidden="true" focusable="false"', profile)
+                original = export_record_page(connection, 1)
+                self.assertIn("ABC12345", original)
+                self.assertIn("4 JAN 2020", original)
                 event = event_page(connection, 1)
                 self.assertIn('class="title-icon"', event)
                 self.assertIn("Geburt", event)

@@ -50,7 +50,8 @@ GEDCOM_LABELS = {
     "REPO": "Archiv", "_ALT": "Alternativer Name", "_GEO": "Geografische Kennung",
     "LABL": "Kennzeichnung", "_STP": "Startperson", "_FID": "Dateikennung",
     "ADDR": "Adresse", "WWW": "Website", "EYES": "Augenfarbe", "HAIR": "Haarfarbe",
-    "HEIG": "Körpergröße", "COLO": "Hautfarbe",
+    "HEIG": "Körpergröße", "COLO": "Hautfarbe", "SECG": "Weiterer Vorname",
+    "NPFX": "Namenspräfix", "NSFX": "Namenszusatz", "TYPE": "Namensart",
 }
 ICON_PATHS = {
     "event": '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
@@ -66,7 +67,24 @@ ICON_PATHS = {
     "family": '<circle cx="8" cy="8" r="3"/><circle cx="17" cy="8" r="3"/><path d="M2 20c0-4 2-7 6-7s6 3 6 7m0 0c0-4 1-7 3-7 4 0 5 3 5 7"/>',
     "cross": '<path d="M12 3v18M5 10h14"/>',
     "paperclip": '<path d="m8 12 6-6a4 4 0 0 1 6 6l-8 8a6 6 0 0 1-9-9l8-8"/>',
+    "mail": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>',
+    "phone": '<path d="M7 3h3l1 4-2 2a14 14 0 0 0 6 6l2-2 4 1v3a3 3 0 0 1-3 3A16 16 0 0 1 4 6a3 3 0 0 1 3-3Z"/>',
+    "globe": '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-3 3-3 15 0 18m0-18c3 3 3 15 0 18"/>',
+    "eye": '<path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
+    "ruler": '<path d="m5 17 12-12 3 3L8 20l-3-3ZM12 10l2 2m1-5 2 2m-8 4 2 2"/>',
+    "palette": '<circle cx="12" cy="12" r="9"/><circle cx="7" cy="10" r="1"/><circle cx="12" cy="6" r="1"/><circle cx="17" cy="10" r="1"/><path d="M12 21c-2 0-3-1-3-3s2-3 4-3h2"/>',
+    "medal": '<path d="M7 3h10l-2 7H9L7 3ZM9 10l-2 3 5 3 5-3-2-3M12 16v5m-3-2 3 2 3-2"/>',
 }
+DETAIL_ICONS = {
+    "NAME": "person", "SEX": "person", "EMAIL": "mail", "PHON": "phone",
+    "ADDR": "place", "WWW": "globe", "RELI": "book", "EYES": "eye",
+    "HAIR": "person", "HEIG": "ruler", "COLO": "palette",
+}
+NAME_TYPES = {
+    "married": "Ehename", "maiden": "Geburtsname", "aka": "Auch bekannt als",
+    "other": "Weiterer Name", "nick": "Rufname", "variation": "Namensvariante",
+}
+DETAIL_METADATA = {"CHAN", "_CRE", "_COR"}
 EVENT_ICONS = {
     "Geburt": "birth", "Tod": "memorial", "Bestattung": "memorial", "Trauerfeier": "memorial",
     "Heirat": "rings", "Verlobung": "rings", "Aufgebot": "rings", "Kirchliche Trauung": "rings",
@@ -75,6 +93,7 @@ EVENT_ICONS = {
     "Ausbildung": "book", "Abschluss": "book", "Beruf": "briefcase",
     "Wohnort": "place", "Einwanderung": "journey", "Auswanderung": "journey",
     "Adoption": "family", "Volkszählung": "family",
+    "Militärische Auszeichnung": "medal",
 }
 
 
@@ -135,7 +154,7 @@ def original_record_link(connection, xref):
     return link("Originaldaten ansehen", f'/export-record/{record["id"]}') if record else ""
 
 
-def export_tree(connection, record_id, excluded_tags=None, included_tags=None, show_tags=True):
+def export_tree(connection, record_id, excluded_tags=None, included_tags=None):
     nodes = connection.execute("SELECT id, parent_id, tag, value FROM export_nodes WHERE record_id=? ORDER BY id",
                                (record_id,)).fetchall()
     children = {}
@@ -164,9 +183,7 @@ def export_tree(connection, record_id, excluded_tags=None, included_tags=None, s
                 if included_tags is not None and node["tag"] not in included_tags:
                     continue
             label = GEDCOM_LABELS.get(node["tag"], node["tag"])
-            description = escape(label)
-            if show_tags or node["tag"] not in GEDCOM_LABELS:
-                description += f' <code>({escape(node["tag"])})</code>'
+            description = f'{escape(label)} <code>({escape(node["tag"])})</code>'
             if node["value"]:
                 description += f': {value_html(node["value"])}'
             nested = render(node["id"])
@@ -177,25 +194,40 @@ def export_tree(connection, record_id, excluded_tags=None, included_tags=None, s
 
 
 def person_additional_html(connection, record_id):
-    excluded = set(FACT_NAMES) | {"FAMS", "FAMC", "OBJE", "NOTE", "ASSO", "SOUR", "CHAN", "_CRE", "LABL"}
-    available = {row[0] for row in connection.execute(
-        "SELECT DISTINCT tag FROM export_nodes WHERE record_id=? AND parent_id IS NULL", (record_id,)
-    )} - excluded
-    groups = [
-        ("Namen und Kennungen", "person", {"NAME", "SEX", "_FID", "_STP"}),
-        ("Kontakt", "document", {"EMAIL", "PHON", "ADDR", "WWW"}),
-        ("Lebensumfeld", "family", {"RELI", "EYES", "HAIR", "HEIG", "COLO"}),
-    ]
+    excluded = set(FACT_NAMES) | {"FAMS", "FAMC", "OBJE", "NOTE", "ASSO", "SOUR", "LABL", "_FID", "_STP"} | DETAIL_METADATA
+    fields = connection.execute(
+        "SELECT id, tag, value FROM export_nodes WHERE record_id=? AND parent_id IS NULL ORDER BY id", (record_id,)
+    ).fetchall()
     cards = []
-    for title, symbol, tags in groups:
-        present = available & tags
-        if present:
-            cards.append(f'<section class="detail-card"><h3>{icon(symbol)}{title}</h3>'
-                         f'{export_tree(connection, record_id, included_tags=present, show_tags=False)}</section>')
-            available -= present
-    if available:
-        cards.append(f'<section class="detail-card"><h3>{icon("document")}Weitere Exportfelder</h3>'
-                     f'{export_tree(connection, record_id, included_tags=available, show_tags=False)}</section>')
+    for field in fields:
+        tag = field["tag"]
+        if tag in excluded:
+            continue
+        children = connection.execute(
+            "SELECT tag, value FROM export_nodes WHERE parent_id=? ORDER BY id", (field["id"],)
+        ).fetchall()
+        details = []
+        for child in children:
+            child_tag = child["tag"]
+            if child_tag in DETAIL_METADATA or not child["value"]:
+                continue
+            if tag == "NAME" and child_tag in {"GIVN", "SURN"} and field["value"]:
+                continue
+            child_value = NAME_TYPES.get(child["value"], child["value"]) if tag == "NAME" and child_tag == "TYPE" else child["value"]
+            details.append(f'<div><dt>{escape(GEDCOM_LABELS.get(child_tag, child_tag))}</dt>'
+                           f'<dd>{escape(child_value)}</dd></div>')
+        value = field["value"].replace("/", "") if tag == "NAME" else field["value"]
+        if tag == "SEX":
+            value = {"M": "männlich", "F": "weiblich", "U": "unbekannt"}.get(value, value)
+        if not value and not details:
+            continue
+        title = GEDCOM_LABELS.get(tag, f"Exportfeld {tag}")
+        body = f'<p>{escape(value)}</p>' if value else ''
+        if details:
+            body += '<dl class="detail-fields">' + ''.join(details) + '</dl>'
+        symbol = DETAIL_ICONS.get(tag, "document")
+        cards.append(f'<article class="detail-card"><div class="tile-icon">{icon(symbol)}</div>'
+                     f'<div class="tile-content"><h3>{escape(title)}</h3>{body}</div></article>')
     return '<div class="detail-grid">' + ''.join(cards) + '</div>' if cards else '<p>Keine weiteren Angaben.</p>'
 
 
@@ -482,8 +514,9 @@ def facts_html(connection, owner_type, owner_id, media_root=None):
         notes = notes_html(connection, "fact", str(fact["id"]))
         source_link = citation_marker(f'/event/{fact["id"]}#sources',
                                       f'{len(citations)} Quelle(n) zu {fact["kind"]} anzeigen') if citations else ''
-        entries.append(f'<li><article class="fact-card"><h3>{event_icon(fact["kind"])}{link(fact["kind"], "/event/" + str(fact["id"]))}{source_link}</h3>{details}'
-                       f'{notes}{media}</article></li>')
+        entries.append(f'<li><article class="fact-card"><div class="tile-icon">{event_icon(fact["kind"])}</div>'
+                       f'<div class="tile-content"><h3>{link(fact["kind"], "/event/" + str(fact["id"]))}{source_link}</h3>'
+                       f'{details}{notes}{media}</div></article></li>')
     return '<ol class="facts">' + "".join(entries) + "</ol>"
 
 
@@ -588,7 +621,7 @@ def person_page(connection, person_id, media_root=None):
 <h3>Dokumente zu Lebensereignissen</h3>{fact_media or '<p>Keine weiteren Dokumente zu Lebensereignissen.</p>'}</section>
 {f'<section class="panel"><h2>Medien zu Familien</h2>{"".join(family_media)}</section>' if family_media else ''}
 <section class="panel"><h2>Notizen</h2>{notes_html(connection, "person", person_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
-<section class="panel" id="details"><h2>Weitere Angaben aus dem Export</h2>{additional_fields}</section>
+<section class="panel" id="details"><h2>Weitere Angaben</h2>{additional_fields}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
 <p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
 <p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p></section>'''

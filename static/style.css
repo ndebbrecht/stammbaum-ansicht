@@ -116,7 +116,11 @@ li { margin-block: .45rem; }
 .person-content > .panel h2, .person-content .columns > .panel h2, .event-detail > .panel h2 { padding-bottom: .6rem; border-bottom: 1px solid var(--border); }
 .event-detail > .panel { margin-block: 1rem; }
 .facts { list-style: none; padding: 0; margin: 0; }
-.facts > li { border-top: 1px solid var(--border); padding-block: 1rem; margin: 0; }
+.facts > li { margin: 0 0 .65rem; min-width: 0; }
+.fact-card, .detail-card { display: grid; grid-template-columns: clamp(3.4rem, 14%, 4.6rem) minmax(0, 1fr); min-width: 0; border: 1px solid var(--border); background: var(--background); }
+.tile-icon { display: flex; align-items: center; justify-content: center; min-height: 100%; padding: .55rem; border-right: 1px solid var(--border); color: var(--accent); }
+.tile-icon .icon { width: clamp(1.9rem, 4vw, 2.5rem); height: clamp(1.9rem, 4vw, 2.5rem); }
+.tile-content { min-width: 0; padding: .8rem 1rem; overflow-wrap: anywhere; }
 .fact-card h3 { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; margin-top: 0; color: var(--accent); }
 .fact-card p { margin-bottom: .4rem; }
 .fact-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: .5rem 1rem; margin: .5rem 0; }
@@ -124,10 +128,13 @@ li { margin-block: .45rem; }
 .fact-meta dt { color: var(--muted); font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .fact-meta dd { margin: 0; overflow-wrap: anywhere; }
 .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: .75rem; }
-.detail-card { min-width: 0; padding: .85rem 1rem; border: 1px solid var(--border); background: var(--background); }
-.detail-card h3 { display: flex; align-items: center; gap: .5rem; margin: 0 0 .65rem; font-size: 1rem; }
-.detail-card h3 .icon { color: var(--accent); }
-.detail-card .record-tree { margin: 0; }
+.detail-card h3 { margin: 0 0 .3rem; font-size: .95rem; }
+.detail-card p { margin: 0; }
+.detail-fields { display: block; margin: .5rem 0 0; font-size: .88rem; }
+.detail-fields > div { display: flex; flex-wrap: wrap; gap: .2rem .4rem; }
+.detail-fields dt { color: var(--muted); }
+.detail-fields dt::after { content: ':'; }
+.detail-fields dd { margin: 0; }
 .citation-clips { display: flex; flex-wrap: wrap; gap: .35rem; }
 .citation-clip { display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; min-height: 2rem; padding: .2rem; color: var(--accent); text-decoration: none; }
 .citation-clip:hover { background: var(--soft); }

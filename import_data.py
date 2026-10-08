@@ -63,6 +63,7 @@ FACT_NAMES = {
     "LATR": "Letzte Ölung", "ORDN": "Ordination", "FUNE": "Trauerfeier",
     "FCOM": "Erstkommunion", "MISE": "MacFamilyTree-Ereignis MISE",
     "MIIN": "MacFamilyTree-Ereignis MIIN", "MIDE": "MacFamilyTree-Ereignis MIDE",
+    "MIAW": "Militärische Auszeichnung",
 }
 DOCUMENT_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
