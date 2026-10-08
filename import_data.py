@@ -13,11 +13,11 @@ SCHEMA = """
 CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, given_name TEXT, surname TEXT, sex TEXT, is_start INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE families (id TEXT PRIMARY KEY, husband_id TEXT, wife_id TEXT);
 CREATE TABLE children (family_id TEXT NOT NULL, person_id TEXT NOT NULL, PRIMARY KEY (family_id, person_id));
-CREATE TABLE facts (id INTEGER PRIMARY KEY, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT, date_text TEXT, place TEXT, address TEXT, latitude REAL, longitude REAL);
+CREATE TABLE facts (id INTEGER PRIMARY KEY, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT, date_text TEXT, place TEXT, address TEXT, cause TEXT, agency TEXT, latitude REAL, longitude REAL);
 CREATE TABLE sources (id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT, publication TEXT, notes TEXT);
 CREATE TABLE citations (fact_id INTEGER NOT NULL, source_id TEXT NOT NULL, page TEXT, detail TEXT);
 CREATE TABLE record_citations (owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, source_id TEXT NOT NULL, page TEXT);
-CREATE TABLE media (id TEXT PRIMARY KEY, title TEXT NOT NULL, relative_path TEXT, mime_type TEXT);
+CREATE TABLE media (id TEXT PRIMARY KEY, title TEXT NOT NULL, relative_path TEXT, mime_type TEXT, external_url TEXT, date_text TEXT);
 CREATE TABLE media_links (owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, media_id TEXT NOT NULL,
     PRIMARY KEY (owner_type, owner_id, media_id));
 CREATE TABLE archive_files (id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL UNIQUE, size_bytes INTEGER NOT NULL, mime_type TEXT NOT NULL, metadata_json TEXT);
@@ -126,8 +126,9 @@ def add_fact(database, owner_type, owner_id, kind, node):
     if latitude is None or longitude is None:
         latitude = longitude = None
     database.execute(
-        "INSERT INTO facts(owner_type,owner_id,kind,value,date_text,place,address,latitude,longitude) VALUES (?,?,?,?,?,?,?,?,?)",
-        (owner_type, owner_id, FACT_NAMES[kind], node.value, node.text("DATE"), node.text("PLAC"), node.text("ADDR"), latitude, longitude),
+        "INSERT INTO facts(owner_type,owner_id,kind,value,date_text,place,address,cause,agency,latitude,longitude) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (owner_type, owner_id, FACT_NAMES[kind], node.value, node.text("DATE"), node.text("PLAC"),
+         node.text("ADDR"), node.text("CAUS"), node.text("AGNC"), latitude, longitude),
     )
     fact_id = database.execute("SELECT last_insert_rowid()").fetchone()[0]
     for citation in node.all("SOUR"):
@@ -233,10 +234,12 @@ def import_gedcom(database, path):
             if safe_name != file_name or Path(safe_name).suffix.lower() not in DOCUMENT_SUFFIXES:
                 safe_name = ""
             database.execute(
-                "INSERT INTO media VALUES (?,?,?,?)",
+                "INSERT INTO media VALUES (?,?,?,?,?,?)",
                 (record_id, record.text("TITL") or safe_name or f"Medium {record_id}",
-                 safe_name or None, mimetypes.guess_type(safe_name)[0] if safe_name else None),
+                 safe_name or None, mimetypes.guess_type(safe_name)[0] if safe_name else None,
+                 record.text("URL") or None, record.text("DATE") or None),
             )
+            add_note_links(database, "media", record_id, record)
         elif record.tag == "NOTE":
             database.execute("INSERT INTO notes VALUES (?,?)", (record_id, record.value))
         elif record.tag == "REPO":

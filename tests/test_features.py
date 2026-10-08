@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, events_page, export_page, export_record_page, family_graph, format_place, overview, person_page, place_page, places_page, source_page, tree_page
+from app import Handler, archive_file_page, archive_page, connection_path, database, event_page, events_page, export_page, export_record_page, family_graph, format_place, media_page, overview, person_page, place_page, places_page, source_page, tree_page
 from auth import hash_password, verify_password
 from export_archive_index import export
 from import_data import build
@@ -18,6 +18,63 @@ EXAMPLE = Path(__file__).parents[1] / "examples" / "beispiel.ged"
 
 
 class FeatureTest(unittest.TestCase):
+    def test_event_source_and_external_media_details(self):
+        gedcom = """0 @I1@ INDI
+1 NAME Ada /Beispiel/
+1 DEAT
+2 DATE 1 JAN 1900
+2 CAUS Beispielursache
+2 AGNC Musterbehörde
+2 SOUR @S1@
+3 PAGE 12
+1 OBJE @M1@
+1 OBJE @M2@
+0 @S1@ SOUR
+1 TITL Musterquelle
+1 DATE 1900
+1 PLAC Musterstadt
+1 AGNC Musterarchiv
+1 REFN Signatur 7
+1 REFT Kirchenbuch – Taufen
+1 ABBR Kurzform
+0 @M1@ OBJE
+1 TITL Externes Musterbild
+1 URL https://example.invalid/bild.jpg
+1 DATE 1901
+1 NOTE Mediennotiz
+0 @M2@ OBJE
+1 TITL Unsicherer Verweis
+1 URL javascript:alert(1)
+0 TRLR
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "family.ged").write_text(gedcom)
+            database_path = root / "family.sqlite"
+            build(root / "family.ged", database_path)
+            with database(database_path) as connection:
+                fact = connection.execute("SELECT cause, agency FROM facts WHERE kind='Tod'").fetchone()
+                self.assertEqual(tuple(fact), ("Beispielursache", "Musterbehörde"))
+                profile = person_page(connection, "I1", root)
+                event = event_page(connection, 1, root)
+                for page in (profile, event):
+                    self.assertIn("Todesursache", page)
+                    self.assertIn("Beispielursache", page)
+                    self.assertIn("Zuständige Stelle", page)
+                self.assertIn('href="https://example.invalid/bild.jpg"', profile)
+                self.assertIn('href="/media-info/M1"', profile)
+                self.assertNotIn('href="javascript:', profile)
+                medium = media_page(connection, "M1", root)
+                self.assertIn("Externes Medium öffnen", medium)
+                self.assertIn("1901", medium)
+                self.assertIn("Mediennotiz", medium)
+                self.assertIn('href="/media-info/M1"', export_record_page(connection, 3))
+                self.assertNotIn('href="javascript:', media_page(connection, "M2", root))
+                source = source_page(connection, "S1", root)
+                for field in ("Musterarchiv", "Signatur 7", "Kirchenbuch – Taufen", "Kurzform", "GEDCOM-Belegstelle: 12"):
+                    self.assertIn(field, source)
+                self.assertIn("keinem Archivscan", source)
+
     def test_all_export_records_remain_readable(self):
         gedcom = """0 HEAD
 1 CHAR UTF-8

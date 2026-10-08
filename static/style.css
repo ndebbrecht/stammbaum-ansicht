@@ -164,10 +164,12 @@ li { margin-block: .45rem; }
 .media-card figcaption, .media-card.document { padding: .8rem 1rem; }
 .media-card.document { display: flex; align-items: center; gap: .6rem; min-height: 4rem; }
 .media-card.document .icon { color: var(--accent); }
+.media-card.document > div { min-width: 0; overflow-wrap: anywhere; }
 .event-map .map-container { margin-top: 1rem; min-width: 0; }
 .event-map .map-place { margin-bottom: .35rem; font-weight: 700; }
 .event-map iframe { display: block; width: 100%; height: clamp(18rem, 45vw, 28rem); border: 1px solid var(--border); }
 dl { display: grid; grid-template-columns: minmax(7rem, 10rem) 1fr; gap: .6rem 1rem; }
+dl dd { min-width: 0; overflow-wrap: anywhere; }
 dt { font-weight: 750; }
 dd { margin: 0; overflow-wrap: anywhere; }
 .pagination { display: flex; gap: 1rem; padding-block: 1rem; }

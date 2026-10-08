@@ -51,6 +51,8 @@ GEDCOM_LABELS = {
     "LABL": "Kennzeichnung", "_STP": "Startperson", "_FID": "Dateikennung",
     "ADDR": "Adresse", "WWW": "Website", "EYES": "Augenfarbe", "HAIR": "Haarfarbe",
     "HEIG": "Körpergröße", "COLO": "Hautfarbe", "SECG": "Weiterer Vorname",
+    "CAUS": "Todesursache", "AGNC": "Zuständige Stelle", "REFN": "Referenznummer",
+    "REFT": "Quellentyp", "ABBR": "Kurzbezeichnung", "TOWN": "Stadt", "STCT": "Bundesland",
     "NPFX": "Namenspräfix", "NSFX": "Namenszusatz", "TYPE": "Namensart",
 }
 ICON_PATHS = {
@@ -86,6 +88,10 @@ NAME_TYPES = {
 }
 DETAIL_METADATA = {"CHAN", "_CRE", "_COR"}
 RELATION_LABELS = {"Godfather": "Pate", "Godmother": "Patin"}
+SOURCE_FIELD_LABELS = {
+    "DATE": "Datum", "PLAC": "Ort", "AGNC": "Zuständige Stelle", "REFN": "Referenznummer",
+    "REFT": "Quellentyp", "ABBR": "Kurzbezeichnung", "TOWN": "Stadt", "STCT": "Bundesland",
+}
 EVENT_ICONS = {
     "Geburt": "birth", "Tod": "memorial", "Bestattung": "memorial", "Trauerfeier": "memorial",
     "Heirat": "rings", "Verlobung": "rings", "Aufgebot": "rings", "Kirchliche Trauung": "rings",
@@ -271,6 +277,8 @@ def export_record_page(connection, record_id):
         related = link("Zum Personenprofil", f'/person/{quote(record["xref"])}')
     elif record["tag"] == "SOUR":
         related = link("Zur Quellenansicht", f'/source/{quote(record["xref"])}')
+    elif record["tag"] == "OBJE":
+        related = link("Zur Medienansicht", f'/media-info/{quote(record["xref"])}')
     elif record["tag"] == "_PLAC":
         related = link("Zur Ortsansicht", f'/place/{record_id}')
     title = f'{record["tag"]} · {record["xref"] or record["value"] or "ohne Kennung"}'
@@ -384,16 +392,51 @@ def media_for(connection, owner_type, owner_id, media_root=None):
     for item in media:
         name = item["relative_path"]
         available = bool(name and media_root and (Path(media_root) / name).is_file())
+        details = link("Medienangaben", f'/media-info/{quote(item["id"])}')
         if available:
             route = f'/media/{quote(item["id"])}'
             if (item["mime_type"] or "").startswith("image/"):
                 entries.append(f'<figure class="media-card"><a href="{route}"><img src="{route}" alt="{escape(item["title"], quote=True)}" loading="lazy"></a>'
-                               f'<figcaption>{escape(item["title"])}</figcaption></figure>')
+                               f'<figcaption>{escape(item["title"])} · {details}</figcaption></figure>')
             else:
-                entries.append(f'<div class="media-card document">{icon("document")}{link("Dokument öffnen: " + item["title"], route)}</div>')
+                entries.append(f'<div class="media-card document">{icon("document")}<div>{link("Dokument öffnen: " + item["title"], route)}<br>{details}</div></div>')
+        elif external_media_url(item["external_url"]):
+            url = escape(item["external_url"], quote=True)
+            entries.append(f'<div class="media-card document">{icon("globe")}<div><a href="{url}" rel="noreferrer noopener">Externes Medium öffnen: {escape(item["title"])}</a><br>{details}</div></div>')
         else:
-            entries.append(f'<p class="muted">{escape(item["title"])} · Datei im Export nicht verfügbar</p>')
+            entries.append(f'<div class="media-card document">{icon("document")}<div>{escape(item["title"])} · Datei nicht verfügbar<br>{details}</div></div>')
     return '<div class="media-grid">' + "".join(entries) + '</div>' if entries else ""
+
+
+def external_media_url(value):
+    if not value or any(character.isspace() or character == "\\" for character in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username and not parsed.password
+
+
+def media_page(connection, media_id, media_root=None):
+    item = connection.execute("SELECT * FROM media WHERE id=?", (media_id,)).fetchone()
+    if not item:
+        return None
+    available = bool(item["relative_path"] and media_root and (Path(media_root) / item["relative_path"]).is_file())
+    original = original_record_link(connection, media_id)
+    fields = [("Titel", item["title"]), ("Datum", item["date_text"])]
+    metadata = ''.join(f'<dt>{label}</dt><dd>{escape(value)}</dd>' for label, value in fields if value)
+    if available:
+        access = f'<p>{link("Datei öffnen", "/media/" + quote(media_id))}</p>'
+    elif external_media_url(item["external_url"]):
+        access = (f'<p><a href="{escape(item["external_url"], quote=True)}" rel="noreferrer noopener">'
+                  'Externes Medium öffnen</a>. Der Aufruf führt zu einer externen Website.</p>')
+    else:
+        access = '<p>Keine nutzbare Datei oder Webadresse im Import verfügbar.</p>'
+    content = f'''<p class="back">{link('← Zur Startseite', '/')}</p><h1 class="title-icon">{icon("document")}{escape(item['title'])}</h1>
+<p>{original}</p><section class="panel"><h2>Medium</h2><dl>{metadata}</dl>{access}</section>
+<section class="panel"><h2>Notizen</h2>{notes_html(connection, "media", media_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>'''
+    return layout(item["title"], content)
 
 
 def person_image(connection, person_id, media_root):
@@ -501,7 +544,8 @@ def notes_html(connection, owner_type, owner_id):
 
 def fact_fields(fact):
     fields = [("Datum", fact["date_text"]), ("Ort", format_place(fact["place"] or "")),
-              ("Genauer Ort", fact["address"])]
+              ("Genauer Ort", fact["address"]), ("Todesursache", fact["cause"]),
+              ("Zuständige Stelle", fact["agency"])]
     value = fact["value"] or ""
     if fact["kind"] == "Heirat" and re.match(r"^Trauzeugen?:\s*", value, flags=re.IGNORECASE):
         fields.append(("Trauzeugen", value.split(":", 1)[1].strip()))
@@ -900,9 +944,15 @@ def source_page(connection, source_id, media_root=None):
     if not source:
         return None
     original = connection.execute("SELECT id FROM export_records WHERE tag='SOUR' AND xref=?", (source_id,)).fetchone()
-    extra_fields = export_tree(connection, original["id"], {"TITL", "AUTH", "PUBL", "TEXT", "NOTE", "OBJE", "REPO"}) if original else ""
+    source_fields = connection.execute(
+        "SELECT tag, value FROM export_nodes WHERE record_id=? AND parent_id IS NULL ORDER BY id",
+        (original["id"],),
+    ).fetchall() if original else []
+    extra_fields = export_tree(connection, original["id"],
+                               {"TITL", "AUTH", "PUBL", "TEXT", "NOTE", "OBJE", "REPO", "_CRE", "CHAN", "_STE"}
+                               | set(SOURCE_FIELD_LABELS)) if original else ""
     cited_facts = connection.execute(
-        "SELECT facts.* FROM facts JOIN citations ON citations.fact_id=facts.id "
+        "SELECT facts.*, citations.page AS citation_page FROM facts JOIN citations ON citations.fact_id=facts.id "
         "WHERE citations.source_id=? ORDER BY facts.id", (source_id,)
     ).fetchall()
     directly_linked = connection.execute(
@@ -929,6 +979,9 @@ def source_page(connection, source_id, media_root=None):
         archive_entries.append(f'{link(item["relative_path"], document_route)} · '
                                f'{link("Dateidetails", "/archive-file/" + str(item["archive_file_id"]))}{details}')
     fields = [("Urheber", source["author"]), ("Veröffentlichung", source["publication"]), ("Notiz", source["notes"])]
+    fields.extend((SOURCE_FIELD_LABELS[field["tag"]],
+                   format_place(field["value"]) if field["tag"] == "PLAC" else field["value"]) for field in source_fields
+                  if field["tag"] in SOURCE_FIELD_LABELS and field["value"])
     metadata = "".join(f'<dt>{label}</dt><dd>{escape(value)}</dd>' for label, value in fields if value)
     repositories = connection.execute(
         "SELECT repositories.*, source_repositories.call_number FROM source_repositories "
@@ -938,6 +991,9 @@ def source_page(connection, source_id, media_root=None):
     repository_items = [escape(item["name"] or "Unbekanntes Archiv")
                         + (" · Signatur: " + escape(item["call_number"]) if item["call_number"] else "")
                         + (" · " + escape(item["address"]) if item["address"] else "") for item in repositories]
+    page_status = ('<p class="unverified">Belegstellen stehen im GEDCOM, aber keinem Archivscan ist hier eine '
+                   'konkrete Seite zugeordnet.</p>' if any(fact["citation_page"] for fact in cited_facts)
+                   and not any(item["page"] is not None for item in archive_links) else '')
     content = f'''<p class="back">{link('← Zu den Quellen', '/sources')}</p><h1 class="title-icon">{icon("document")}{escape(source['title'])}</h1>
 <p class="muted">GEDCOM-ID: {escape(source_id)} · Archivzuordnungen und ihr Prüfstatus stehen unten. {original_record_link(connection, source_id)}</p>
 <section class="panel"><h2>Quellenangaben</h2><dl>{metadata or '<dt>Metadaten</dt><dd>Keine weiteren Angaben im GEDCOM.</dd>'}</dl></section>
@@ -945,8 +1001,9 @@ def source_page(connection, source_id, media_root=None):
 <section class="panel"><h2>Quellennotizen</h2>{notes_html(connection, "source", source_id) or '<p>Keine Notizen im GEDCOM.</p>'}</section>
 {f'<section class="panel"><h2>Weitere Angaben aus dem Export</h2>{extra_fields}</section>' if extra_fields else ''}
 <section class="panel"><h2>Verknüpfte Medien</h2>{media_for(connection, "source", source_id, media_root) or '<p>Keine Medien verknüpft.</p>'}</section>
-<section class="panel"><h2>Archivdokumente</h2>{list_items(archive_entries) if archive_entries else '<p>Noch keine Zuordnung zum Quellenarchiv geprüft oder eingetragen.</p>'}</section>
-<section class="panel"><h2>Belegte Ereignisse</h2>{list_items([link(fact['kind'], '/event/' + str(fact['id'])) + ' · ' + event_owner(connection, fact) for fact in cited_facts])}</section>
+<section class="panel"><h2>Archivdokumente</h2>{page_status}{list_items(archive_entries) if archive_entries else '<p>Noch keine Zuordnung zum Quellenarchiv geprüft oder eingetragen.</p>'}</section>
+<section class="panel"><h2>Belegte Ereignisse</h2>{list_items([link(fact['kind'], '/event/' + str(fact['id'])) + ' · ' + event_owner(connection, fact)
+    + (' · GEDCOM-Belegstelle: ' + escape(fact['citation_page']) if fact['citation_page'] else '') for fact in cited_facts])}</section>
 <section class="panel"><h2>Direkt verknüpfte Personen</h2>{list_items([person_link(person) for person in directly_linked])}</section>'''
     return layout(source["title"], content)
 
@@ -1140,6 +1197,8 @@ class Handler(BaseHTTPRequestHandler):
                     body = tree_page(connection, route.rsplit("/", 1)[1], depth)
                 elif re.fullmatch(r"/source/[A-Za-z0-9_-]+", route):
                     body = source_page(connection, route.rsplit("/", 1)[1], self.media_root)
+                elif re.fullmatch(r"/media-info/[A-Za-z0-9_-]+", route):
+                    body = media_page(connection, route.rsplit("/", 1)[1], self.media_root)
                 elif re.fullmatch(r"/event/[0-9]+", route):
                     body = event_page(connection, int(route.rsplit("/", 1)[1]), self.media_root)
                 elif re.fullmatch(r"/archive-file/[0-9]+", route):
