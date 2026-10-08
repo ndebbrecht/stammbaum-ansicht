@@ -1,13 +1,21 @@
 import argparse
+import base64
+import binascii
+from collections import deque
 from contextlib import closing
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 from pathlib import Path
 import re
 import sqlite3
 import sys
+from threading import Lock
+import time
 from urllib.parse import parse_qs, quote, urlsplit
+
+from auth import verify_password
 
 
 ROOT = Path(__file__).parent
@@ -32,7 +40,7 @@ def layout(title, content):
 <title>{escape(title)} · Stammbaum</title><meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/static/style.css"></head>
 <body><a class="skip" href="#inhalt">Zum Inhalt springen</a>
 <header class="site-header"><div class="shell header-inner"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✦</span> Stammbaum</a><nav aria-label="Hauptnavigation">
-<a href="/">Startseite</a><a href="/sources">Quellen</a><a href="/archive">Archiv</a></nav></div></header>
+<a href="/">Startseite</a><a href="/events">Ereignisse</a><a href="/sources">Quellen</a><a href="/archive">Archiv</a></nav></div></header>
 <main id="inhalt" class="shell" tabindex="-1">{content}</main>
 <footer class="shell">Private Leseansicht · Angaben aus dem GEDCOM sind nicht automatisch geprüft. · Darstellung folgt dem Hell-/Dunkelmodus des Geräts.</footer></body></html>'''
 
@@ -128,7 +136,7 @@ def facts_html(connection, owner_type, owner_id, media_root=None):
         details = ", ".join(escape(value) for value in (fact["date_text"], fact["place"], fact["value"]) if value)
         media = media_for(connection, "fact", str(fact["id"]), media_root)
         evidence = f'<div class="evidence"><strong>Quellen</strong>{citations_html(citations)}</div>' if citations else '<p class="unverified">Kein GEDCOM-Quellenverweis vorhanden.</p>'
-        entries.append(f'<li><article class="fact-card"><h3>{escape(fact["kind"])}</h3><p>{details or "Ohne weitere Angabe"}</p>'
+        entries.append(f'<li><article class="fact-card"><h3>{link(fact["kind"], "/event/" + str(fact["id"]))}</h3><p>{details or "Ohne weitere Angabe"}</p>'
                        f'{media}{evidence}</article></li>')
     return '<ol class="facts">' + "".join(entries) + "</ol>"
 
@@ -183,9 +191,111 @@ def person_page(connection, person_id, media_root=None):
 {direct_media or '<p>Keine direkt zugeordneten Medien.</p>'}<h3>Direkte Quellenverweise</h3>{citations_html(direct_citations)}
 <h3>Dokumente zu Lebensereignissen</h3>{fact_media or '<p>Keine weiteren Dokumente zu Lebensereignissen.</p>'}</section>
 <section class="panel" id="relations" aria-labelledby="relations-title"><h2 id="relations-title">Beziehungen</h2>
+<p>{link('Familienbaum ansehen →', '/tree/' + quote(person_id))}</p>
+<p>{link('Verbindung zu einer anderen Person finden →', '/connections?from=' + quote(person_id))}</p>
 <h3>Eltern</h3>{list_items(parents)}<h3>Geschwister</h3>{list_items(siblings)}
 <h3>Partner und Kinder</h3>{''.join(families) or '<p>Keine Familie im GEDCOM verknüpft.</p>'}</section>'''
     return layout(person["name"], content)
+
+
+def family_graph(connection):
+    graph = {}
+
+    def connect(first, second, relation, reverse):
+        if first and second and first != second:
+            graph.setdefault(first, []).append((second, relation))
+            graph.setdefault(second, []).append((first, reverse))
+
+    for family in connection.execute("SELECT * FROM families"):
+        parents = [family[column] for column in ("husband_id", "wife_id") if family[column]]
+        children = [row[0] for row in connection.execute("SELECT person_id FROM children WHERE family_id=?", (family["id"],))]
+        if len(parents) == 2:
+            connect(parents[0], parents[1], "Partner von", "Partner von")
+        for parent_id in parents:
+            for child_id in children:
+                connect(parent_id, child_id, "Elternteil von", "Kind von")
+        for index, child_id in enumerate(children):
+            for sibling_id in children[index + 1:]:
+                connect(child_id, sibling_id, "Geschwister von", "Geschwister von")
+    return graph
+
+
+def connection_path(graph, origin, destination):
+    queue = deque([origin])
+    previous = {origin: None}
+    while queue:
+        current = queue.popleft()
+        if current == destination:
+            path = []
+            while previous[current] is not None:
+                prior, relation = previous[current]
+                path.append((current, relation))
+                current = prior
+            return [(origin, "Start")] + list(reversed(path))
+        for neighbor, relation in graph.get(current, []):
+            if neighbor not in previous:
+                previous[neighbor] = (current, relation)
+                queue.append(neighbor)
+    return []
+
+
+def connections_page(connection, origin, destination, query):
+    origin_person = connection.execute("SELECT * FROM people WHERE id=?", (origin,)).fetchone() if origin else None
+    destination_person = connection.execute("SELECT * FROM people WHERE id=?", (destination,)).fetchone() if destination else None
+    candidates = []
+    if query:
+        candidates = connection.execute("SELECT * FROM people WHERE name LIKE ? ORDER BY name LIMIT 25", (f'%{query[:100]}%',)).fetchall()
+    path_html = ""
+    if origin_person and destination_person:
+        path = connection_path(family_graph(connection), origin, destination)
+        people = {person_id: connection.execute("SELECT * FROM people WHERE id=?", (person_id,)).fetchone()
+                  for person_id, _ in path}
+        path_html = '<section class="panel"><h2>Verbindungsweg</h2>' + (
+            '<ol class="connection-path">' + ''.join(
+                f'<li>{escape(relation)}: {person_link(people[person_id])}</li>' for person_id, relation in path
+            ) + '</ol>' if path else '<p>Keine Verbindung im importierten Baum gefunden.</p>') + '</section>'
+    choice_links = [person_link(person) + ' · ' + link('Weg zeigen',
+                    '/connections?from=' + quote(origin) + '&to=' + quote(person['id'])) for person in candidates]
+    content = f'''<h1>Personen verbinden</h1><p>Wähle eine zweite Person. Der kürzeste Weg zeigt die im GEDCOM erfassten Beziehungen.</p>
+<section class="panel"><h2>Ausgangspunkt</h2><p>{person_link(origin_person) if origin_person else 'Bitte zuerst eine Personenseite öffnen.'}</p></section>
+<form class="search panel" action="/connections" method="get"><label for="connection-search">Zielperson suchen</label>
+<input type="hidden" name="from" value="{escape(origin, quote=True)}"><div><input id="connection-search" name="q" type="search" value="{escape(query[:100], quote=True)}"><button>Suchen</button></div></form>
+{path_html}<section class="panel"><h2>Person auswählen</h2>{list_items(choice_links)}</section>'''
+    return layout("Personen verbinden", content)
+
+
+def tree_page(connection, person_id):
+    person = connection.execute("SELECT * FROM people WHERE id=?", (person_id,)).fetchone()
+    if not person:
+        return None
+    parents = connection.execute(
+        "SELECT DISTINCT people.* FROM people JOIN families ON people.id=families.husband_id OR people.id=families.wife_id "
+        "JOIN children ON children.family_id=families.id WHERE children.person_id=? ORDER BY people.name", (person_id,)
+    ).fetchall()
+    partners = connection.execute(
+        "SELECT DISTINCT people.* FROM people JOIN families ON "
+        "(people.id=families.husband_id AND families.wife_id=?) OR "
+        "(people.id=families.wife_id AND families.husband_id=?) ORDER BY people.name", (person_id, person_id)
+    ).fetchall()
+    children = connection.execute(
+        "SELECT DISTINCT people.* FROM people JOIN children ON children.person_id=people.id "
+        "JOIN families ON families.id=children.family_id WHERE families.husband_id=? OR families.wife_id=? ORDER BY people.name",
+        (person_id, person_id),
+    ).fetchall()
+    grandparents = []
+    for parent in parents:
+        grandparents.extend(connection.execute(
+            "SELECT DISTINCT people.* FROM people JOIN families ON people.id=families.husband_id OR people.id=families.wife_id "
+            "JOIN children ON children.family_id=families.id WHERE children.person_id=? ORDER BY people.name", (parent["id"],)
+        ).fetchall())
+    content = f'''<p class="back">{link('← Zur Person', '/person/' + quote(person_id))}</p>
+<h1>Familienbaum</h1><p>Übersicht um {escape(person['name'])}. Alle Namen führen zur jeweiligen Personenseite.</p>
+<div class="tree"><section class="panel"><h2>Großeltern</h2>{list_items([person_link(member) for member in grandparents])}</section>
+<section class="panel"><h2>Eltern</h2>{list_items([person_link(member) for member in parents])}</section>
+<section class="panel tree-focus"><h2>Ausgangsperson</h2><p>{person_link(person)}</p></section>
+<section class="panel"><h2>Partner</h2>{list_items([person_link(member) for member in partners])}</section>
+<section class="panel"><h2>Kinder</h2>{list_items([person_link(member) for member in children])}</section></div>'''
+    return layout("Familienbaum", content)
 
 
 def sources_page(connection, query):
@@ -201,22 +311,96 @@ def sources_page(connection, query):
     return layout("GEDCOM-Quellen", content)
 
 
+def event_owner(connection, fact):
+    if fact["owner_type"] == "person":
+        person = connection.execute("SELECT * FROM people WHERE id=?", (fact["owner_id"],)).fetchone()
+        return person_link(person)
+    family = connection.execute("SELECT * FROM families WHERE id=?", (fact["owner_id"],)).fetchone()
+    if not family:
+        return "Unbekannte Familie"
+    members = [connection.execute("SELECT * FROM people WHERE id=?", (family[column],)).fetchone()
+               for column in ("husband_id", "wife_id") if family[column]]
+    return " und ".join(person_link(member) for member in members) or "Unbekannte Familie"
+
+
+def event_page(connection, fact_id, media_root=None):
+    fact = connection.execute("SELECT * FROM facts WHERE id=?", (fact_id,)).fetchone()
+    if not fact:
+        return None
+    fields = [("Datum", fact["date_text"]), ("Ort", fact["place"]), ("Angabe", fact["value"])]
+    details = "".join(f'<dt>{label}</dt><dd>{escape(value)}</dd>' for label, value in fields if value)
+    citations = citations_for(connection, "fact", str(fact_id))
+    media = media_for(connection, "fact", str(fact_id), media_root)
+    content = f'''<p class="back">{link('← Zu den Ereignissen', '/events')}</p>
+<section class="person-hero"><p class="eyebrow">Ereignis</p><h1>{escape(fact['kind'])}</h1>
+<p>Betroffene Person oder Familie: {event_owner(connection, fact)}</p></section>
+<section class="panel"><h2>Angaben</h2><dl>{details or '<dt>Weitere Angaben</dt><dd>Keine im GEDCOM.</dd>'}</dl></section>
+<section class="panel"><h2>Quellen und Medien</h2><h3>GEDCOM-Quellenverweise</h3>{citations_html(citations)}
+<h3>Angehängte Medien</h3>{media or '<p>Keine Medien angehängt.</p>'}</section>'''
+    return layout(fact["kind"], content)
+
+
+def events_page(connection, query, page):
+    term = query.strip()[:100]
+    page = min(max(page, 1), 10000)
+    pattern = f"%{term}%"
+    filter_sql = "WHERE kind LIKE ? OR date_text LIKE ? OR place LIKE ? OR value LIKE ?"
+    values = (pattern,) * 4
+    count = connection.execute(f"SELECT COUNT(*) FROM facts {filter_sql}", values).fetchone()[0]
+    facts = connection.execute(
+        f"SELECT * FROM facts {filter_sql} ORDER BY id DESC LIMIT 50 OFFSET ?", (*values, (page - 1) * 50)
+    ).fetchall()
+    entries = [f'{link(fact["kind"], "/event/" + str(fact["id"]))} · '
+               f'{escape(fact["date_text"] or "ohne Datum")} · {event_owner(connection, fact)}' for fact in facts]
+    previous = link("← Vorherige", f'/events?q={quote(term)}&page={page - 1}') if page > 1 else ""
+    following = link("Nächste →", f'/events?q={quote(term)}&page={page + 1}') if page * 50 < count else ""
+    content = f'''<h1>Ereignisse</h1><p>{count} Einträge gefunden.</p>
+<form class="search panel" action="/events" method="get"><label for="event-search">Ereignisse suchen</label>
+<div><input id="event-search" name="q" type="search" value="{escape(term, quote=True)}"><button>Suchen</button></div></form>
+<section class="panel"><h2>Ergebnisse</h2>{list_items(entries)}<nav class="pagination" aria-label="Ergebnisseiten">{previous} {following}</nav></section>'''
+    return layout("Ereignisse", content)
+
+
 def source_page(connection, source_id, media_root=None):
     source = connection.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
     if not source:
         return None
-    people = connection.execute(
-        "SELECT DISTINCT people.* FROM people JOIN facts ON facts.owner_id=people.id AND facts.owner_type='person' "
-        "JOIN citations ON citations.fact_id=facts.id WHERE citations.source_id=? ORDER BY people.name",
+    cited_facts = connection.execute(
+        "SELECT facts.* FROM facts JOIN citations ON citations.fact_id=facts.id "
+        "WHERE citations.source_id=? ORDER BY facts.id", (source_id,)
+    ).fetchall()
+    directly_linked = connection.execute(
+        "SELECT people.* FROM people JOIN record_citations ON record_citations.owner_id=people.id "
+        "WHERE record_citations.owner_type='person' AND record_citations.source_id=? ORDER BY people.name",
         (source_id,),
     ).fetchall()
+    archive_links = connection.execute(
+        "SELECT source_archive_links.*, archive_files.relative_path, archive_files.size_bytes "
+        "FROM source_archive_links JOIN archive_files ON archive_files.id=source_archive_links.archive_file_id "
+        "WHERE source_archive_links.source_id=? ORDER BY archive_files.relative_path, source_archive_links.page",
+        (source_id,),
+    ).fetchall()
+    archive_entries = []
+    for item in archive_links:
+        page = item["page"]
+        document_route = f'/document/{item["archive_file_id"]}' + (f'#page={page}' if page else "")
+        status = "Dateizuordnung geprüft" if item["status"] == "verified" else "Dateizuordnung vorgeschlagen, noch nicht geprüft"
+        details = f'<p>{escape(status)}' + (f' · Seite {page}' if page else "") + '</p>'
+        if item["note"]:
+            details += f'<p>{escape(item["note"])}</p>'
+        if item["transcription"]:
+            details += f'<details><summary>Lesbarer Text</summary><p class="transcription">{escape(item["transcription"])}</p></details>'
+        archive_entries.append(f'{link(item["relative_path"], document_route)} · '
+                               f'{link("Dateidetails", "/archive-file/" + str(item["archive_file_id"]))}{details}')
     fields = [("Urheber", source["author"]), ("Veröffentlichung", source["publication"]), ("Notiz", source["notes"])]
     metadata = "".join(f'<dt>{label}</dt><dd>{escape(value)}</dd>' for label, value in fields if value)
     content = f'''<p class="back">{link('← Zu den Quellen', '/sources')}</p><h1>{escape(source['title'])}</h1>
-<p class="muted">GEDCOM-ID: {escape(source_id)} · Zuordnung zum Originaldokument noch nicht geprüft.</p>
+<p class="muted">GEDCOM-ID: {escape(source_id)} · Archivzuordnungen und ihr Prüfstatus stehen unten.</p>
 <section class="panel"><h2>Quellenangaben</h2><dl>{metadata or '<dt>Metadaten</dt><dd>Keine weiteren Angaben im GEDCOM.</dd>'}</dl></section>
 <section class="panel"><h2>Verknüpfte Medien</h2>{media_for(connection, "source", source_id, media_root) or '<p>Keine Medien verknüpft.</p>'}</section>
-<section class="panel"><h2>Verknüpfte Personen</h2>{list_items([person_link(person) for person in people])}</section>'''
+<section class="panel"><h2>Archivdokumente</h2>{list_items(archive_entries) if archive_entries else '<p>Noch keine Zuordnung zum Quellenarchiv geprüft oder eingetragen.</p>'}</section>
+<section class="panel"><h2>Belegte Ereignisse</h2>{list_items([link(fact['kind'], '/event/' + str(fact['id'])) + ' · ' + event_owner(connection, fact) for fact in cited_facts])}</section>
+<section class="panel"><h2>Direkt verknüpfte Personen</h2>{list_items([person_link(person) for person in directly_linked])}</section>'''
     return layout(source["title"], content)
 
 
@@ -228,11 +412,12 @@ def archive_page(connection, query, page):
         "SELECT * FROM archive_files WHERE relative_path LIKE ? ORDER BY relative_path LIMIT 50 OFFSET ?",
         (f"%{term}%", (current_page - 1) * 50),
     ).fetchall()
-    items = [link(file["relative_path"], f'/document/{file["id"]}') for file in files]
+    items = [link(file["relative_path"], f'/document/{file["id"]}') + ' · ' +
+             link('Details', f'/archive-file/{file["id"]}') for file in files]
     previous = link("← Vorherige", f'/archive?q={quote(term)}&page={current_page - 1}') if current_page > 1 else ""
     following = link("Nächste →", f'/archive?q={quote(term)}&page={current_page + 1}') if current_page * 50 < count else ""
     content = f'''<h1>Quellenarchiv</h1><p>{count} Dokumente gefunden. Originale bleiben unverändert auf dem privaten Speicher.
-Eine automatische Zuordnung zu Personen oder Behauptungen erfolgt nicht.</p>
+Die App bewertet historische Aussagen nicht automatisch.</p>
 <form class="search panel" action="/archive" method="get"><label for="archive-search">Dateinamen suchen</label>
 <div><input id="archive-search" name="q" type="search" value="{escape(term, quote=True)}"><button>Suchen</button></div></form>
 <section class="panel"><h2>Dokumente</h2><p class="muted">Seite {current_page}</p>{list_items(items)}
@@ -240,11 +425,69 @@ Eine automatische Zuordnung zu Personen oder Behauptungen erfolgt nicht.</p>
     return layout("Quellenarchiv", content)
 
 
+def archive_file_page(connection, file_id):
+    file = connection.execute("SELECT * FROM archive_files WHERE id=?", (file_id,)).fetchone()
+    if not file:
+        return None
+    metadata = json.loads(file["metadata_json"]) if file["metadata_json"] else {}
+    fields = [("Archivpfad", file["relative_path"]), ("Dateigröße", f'{file["size_bytes"]:,} Bytes'),
+              ("Dateityp", file["mime_type"])] + [(key, str(value)) for key, value in metadata.items()]
+    details = "".join(f'<dt>{escape(label)}</dt><dd>{escape(value)}</dd>' for label, value in fields)
+    sources = connection.execute(
+        "SELECT sources.id, sources.title, source_archive_links.page, source_archive_links.status "
+        "FROM source_archive_links JOIN sources ON sources.id=source_archive_links.source_id "
+        "WHERE source_archive_links.archive_file_id=? ORDER BY sources.title", (file_id,)
+    ).fetchall()
+    source_items = [link(source["title"], "/source/" + quote(source["id"]))
+                    + (f' · Seite {source["page"]}' if source["page"] else "")
+                    + (' · Dateizuordnung geprüft' if source["status"] == "verified" else ' · Zuordnung offen')
+                    for source in sources]
+    content = f'''<p class="back">{link('← Zum Archiv', '/archive')}</p><h1>Archivdatei</h1>
+<section class="panel"><h2>Original</h2><p>{link('Datei öffnen', '/document/' + str(file_id))}</p><dl>{details}</dl></section>
+<section class="panel"><h2>Verknüpfte Quellen</h2>{list_items(source_items)}</section>'''
+    return layout("Archivdatei", content)
+
+
 class Handler(BaseHTTPRequestHandler):
     database_path = None
     archive_root = None
     media_root = None
     featured_person_id = None
+    password_hash = None
+    failed_logins = {}
+    failed_logins_lock = Lock()
+
+    def authorized(self):
+        if not self.password_hash:
+            return True
+        address = self.client_address[0]
+        now = time.monotonic()
+        with self.failed_logins_lock:
+            failures = [value for value in self.failed_logins.get(address, []) if now - value < 300]
+            self.failed_logins[address] = failures
+            blocked = len(failures) >= 10
+        header = self.headers.get("Authorization", "")
+        valid = False
+        if not blocked and header.startswith("Basic ") and len(header) < 1024:
+            try:
+                decoded = base64.b64decode(header[6:], validate=True).decode("utf-8")
+                username, password = decoded.split(":", 1)
+                valid = username == "stammbaum" and verify_password(password, self.password_hash)
+            except (binascii.Error, UnicodeDecodeError, ValueError):
+                pass
+        if valid:
+            with self.failed_logins_lock:
+                self.failed_logins.pop(address, None)
+            return True
+        with self.failed_logins_lock:
+            self.failed_logins.setdefault(address, []).append(now)
+        self.send_response(429 if blocked else 401)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("WWW-Authenticate", 'Basic realm="Stammbaum", charset="UTF-8"')
+        self.end_headers()
+        self.wfile.write("Anmeldung erforderlich.\n".encode("utf-8"))
+        return False
 
     def send_page(self, body, status=200, content_type="text/html; charset=utf-8"):
         payload = body.encode("utf-8") if isinstance(body, str) else body
@@ -295,6 +538,8 @@ class Handler(BaseHTTPRequestHandler):
                 remaining -= len(chunk)
 
     def do_GET(self):
+        if not self.authorized():
+            return
         parsed = urlsplit(self.path)
         route = parsed.path
         parameters = parse_qs(parsed.query)
@@ -306,6 +551,15 @@ class Handler(BaseHTTPRequestHandler):
                     body = overview(connection, parameters.get("q", [""])[0], self.featured_person_id, self.media_root)
                 elif route == "/sources":
                     body = sources_page(connection, parameters.get("q", [""])[0])
+                elif route == "/events":
+                    try:
+                        page = int(parameters.get("page", ["1"])[0])
+                    except ValueError:
+                        page = 1
+                    body = events_page(connection, parameters.get("q", [""])[0], page)
+                elif route == "/connections":
+                    body = connections_page(connection, parameters.get("from", [""])[0],
+                                            parameters.get("to", [""])[0], parameters.get("q", [""])[0])
                 elif route == "/archive":
                     try:
                         page = int(parameters.get("page", ["1"])[0])
@@ -314,8 +568,14 @@ class Handler(BaseHTTPRequestHandler):
                     body = archive_page(connection, parameters.get("q", [""])[0], page)
                 elif re.fullmatch(r"/person/[A-Za-z0-9_-]+", route):
                     body = person_page(connection, route.rsplit("/", 1)[1], self.media_root)
+                elif re.fullmatch(r"/tree/[A-Za-z0-9_-]+", route):
+                    body = tree_page(connection, route.rsplit("/", 1)[1])
                 elif re.fullmatch(r"/source/[A-Za-z0-9_-]+", route):
                     body = source_page(connection, route.rsplit("/", 1)[1], self.media_root)
+                elif re.fullmatch(r"/event/[0-9]+", route):
+                    body = event_page(connection, int(route.rsplit("/", 1)[1]), self.media_root)
+                elif re.fullmatch(r"/archive-file/[0-9]+", route):
+                    body = archive_file_page(connection, int(route.rsplit("/", 1)[1]))
                 elif re.fullmatch(r"/media/[A-Za-z0-9_-]+", route):
                     if not self.media_root:
                         return self.send_page("Medien nicht eingerichtet", 404)
@@ -352,6 +612,7 @@ if __name__ == "__main__":
     parser.add_argument("--archive-root")
     parser.add_argument("--media-root", help="Private directory containing GEDCOM media files")
     parser.add_argument("--featured-person-id", help="Private GEDCOM ID shown on the start page")
+    parser.add_argument("--password-hash-file", help="Enable HTTP Basic authentication using a private password hash file")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     arguments = parser.parse_args()
@@ -359,6 +620,10 @@ if __name__ == "__main__":
     Handler.archive_root = arguments.archive_root
     Handler.media_root = arguments.media_root
     Handler.featured_person_id = arguments.featured_person_id
+    if arguments.password_hash_file:
+        Handler.password_hash = Path(arguments.password_hash_file).read_text(encoding="utf-8").strip()
+        if not Handler.password_hash.startswith("pbkdf2_sha256:600000:"):
+            parser.error("Password hash file is invalid")
     server = ThreadingHTTPServer((arguments.host, arguments.port), Handler)
     print(f"Listening on http://{arguments.host}:{arguments.port}", flush=True)
     server.serve_forever()

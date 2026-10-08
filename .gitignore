@@ -4,7 +4,17 @@ __pycache__/
 *.sqlite-*
 *.ged
 *.gedcom
+*.jsonl
+*.hash
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.webp
 .env
+docker.env
 .DS_Store
 private/
 data/

@@ -1,0 +1,48 @@
+services:
+  stammbaum:
+    build: .
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${PORT:-8765}:8765"
+    environment:
+      AUTH_ENABLED: "${AUTH_ENABLED:-0}"
+      FEATURED_PERSON_ID: "${FEATURED_PERSON_ID:-}"
+    volumes:
+      - type: bind
+        source: ${GEDCOM_PATH:?Set GEDCOM_PATH to a GEDCOM file}
+        target: /input/tree.ged
+        read_only: true
+      - type: bind
+        source: ${MEDIA_ROOT:-./examples}
+        target: /media
+        read_only: true
+      - type: bind
+        source: ${ARCHIVE_ROOT:-./examples}
+        target: /archive
+        read_only: true
+      - type: bind
+        source: ${AUTH_DIR:-./examples}
+        target: /auth
+        read_only: true
+      - type: bind
+        source: ${CONFIG_DIR:-./examples}
+        target: /config
+        read_only: true
+      - type: volume
+        source: database
+        target: /data
+    tmpfs:
+      - /tmp:size=64m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8765), 2).close()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10m
+      retries: 3
+volumes:
+  database:

@@ -1,4 +1,5 @@
 import argparse
+from hashlib import sha256
 import json
 import mimetypes
 import os
@@ -19,10 +20,15 @@ CREATE TABLE media (id TEXT PRIMARY KEY, title TEXT NOT NULL, relative_path TEXT
 CREATE TABLE media_links (owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, media_id TEXT NOT NULL,
     PRIMARY KEY (owner_type, owner_id, media_id));
 CREATE TABLE archive_files (id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL UNIQUE, size_bytes INTEGER NOT NULL, mime_type TEXT NOT NULL, metadata_json TEXT);
+CREATE TABLE source_archive_links (source_id TEXT NOT NULL, archive_file_id INTEGER NOT NULL,
+    page INTEGER, status TEXT NOT NULL, note TEXT, transcription TEXT,
+    PRIMARY KEY (source_id, archive_file_id, page));
 CREATE INDEX facts_owner ON facts(owner_type, owner_id);
 CREATE INDEX citations_fact ON citations(fact_id);
 CREATE INDEX media_links_owner ON media_links(owner_type, owner_id);
 CREATE INDEX archive_files_path ON archive_files(relative_path);
+CREATE INDEX archive_files_size ON archive_files(size_bytes);
+CREATE INDEX source_archive_links_source ON source_archive_links(source_id);
 """
 
 FACT_NAMES = {
@@ -169,15 +175,18 @@ def import_gedcom(database, path):
 
 def index_archive(database, archive_root):
     root = Path(archive_root)
-    for directory, _, filenames in os.walk(root):
+    if not root.is_dir():
+        raise FileNotFoundError(f"Archive root not found: {root}")
+
+    def fail_scan(error):
+        raise error
+
+    for directory, _, filenames in os.walk(root, onerror=fail_scan):
         for filename in filenames:
             path = Path(directory) / filename
             if path.suffix.lower() not in DOCUMENT_SUFFIXES:
                 continue
-            try:
-                stat = path.stat()
-            except OSError:
-                continue
+            stat = path.stat()
             relative_path = str(path.relative_to(root))
             database.execute(
                 "INSERT INTO archive_files(relative_path,size_bytes,mime_type,metadata_json) VALUES (?,?,?,?)",
@@ -185,7 +194,96 @@ def index_archive(database, archive_root):
             )
 
 
-def build(gedcom_path, database_path, archive_root=None):
+def import_archive_index(database, path):
+    with Path(path).open("r", encoding="utf-8") as source:
+        for line in source:
+            entry = json.loads(line)
+            relative_path = entry["relative_path"]
+            candidate = Path(relative_path)
+            if candidate.is_absolute() or ".." in candidate.parts or not relative_path:
+                raise ValueError("Archive index contains an unsafe path")
+            database.execute(
+                "INSERT INTO archive_files(relative_path,size_bytes,mime_type,metadata_json) VALUES (?,?,?,?)",
+                (relative_path, entry["size_bytes"], entry["mime_type"], entry.get("metadata_json")),
+            )
+
+
+def file_hash(path):
+    digest = sha256()
+    with Path(path).open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def match_source_media(database, media_root, archive_root):
+    if not media_root or not archive_root:
+        return
+    media_directory = Path(media_root).resolve()
+    archive_directory = Path(archive_root).resolve()
+    rows = database.execute(
+        "SELECT media_links.owner_id AS source_id, media.id AS media_id, media.relative_path "
+        "FROM media_links JOIN media ON media.id=media_links.media_id "
+        "WHERE media_links.owner_type='source' AND media.relative_path IS NOT NULL"
+    ).fetchall()
+    for source_id, media_id, relative_path in rows:
+        source_path = (media_directory / relative_path).resolve()
+        if not source_path.is_relative_to(media_directory) or not source_path.is_file():
+            continue
+        candidates = database.execute(
+            "SELECT id, relative_path FROM archive_files WHERE size_bytes=?", (source_path.stat().st_size,)
+        ).fetchall()
+        if not candidates:
+            continue
+        source_digest = file_hash(source_path)
+        matches = []
+        for archive_id, archive_path in candidates:
+            candidate = (archive_directory / archive_path).resolve()
+            if candidate.is_relative_to(archive_directory) and candidate.is_file() and file_hash(candidate) == source_digest:
+                matches.append((archive_id, archive_path))
+        if matches:
+            archive_id, _ = min(matches, key=lambda item: (not item[1].startswith("medien-kuratiert/"), len(item[1])))
+            database.execute(
+                "INSERT INTO source_archive_links VALUES (?,?,?,?,?,?)",
+                (source_id, archive_id, None, "verified", "Identische Datei zum GEDCOM-Medium " + media_id + " (SHA-256).", None),
+            )
+            database.execute("UPDATE archive_files SET metadata_json=? WHERE id=?",
+                             (json.dumps({"sha256": source_digest}), archive_id))
+
+
+def import_source_links(database, path):
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("sources"), list):
+        raise ValueError("Source links file needs a sources array")
+    for entry in data["sources"]:
+        if not isinstance(entry, dict) or entry.get("status") not in ("suggested", "verified"):
+            raise ValueError("Each source link needs suggested or verified status")
+        source = database.execute("SELECT id FROM sources WHERE id=?", (entry.get("source_id"),)).fetchone()
+        document = database.execute("SELECT id FROM archive_files WHERE relative_path=?", (entry.get("path"),)).fetchone()
+        if not source or not document:
+            raise ValueError("Source or archive path in source links file was not imported")
+        page = entry.get("page")
+        if page is not None and (type(page) is not int or page < 1):
+            raise ValueError("Source link page must be a positive integer")
+        existing = database.execute(
+            "SELECT rowid FROM source_archive_links WHERE source_id=? AND archive_file_id=? "
+            "AND (page=? OR (page IS NULL AND ? IS NULL))",
+            (source[0], document[0], page, page),
+        ).fetchone()
+        if existing:
+            database.execute(
+                "UPDATE source_archive_links SET status=?, note=?, transcription=? WHERE rowid=?",
+                (entry["status"], entry.get("note"), entry.get("transcription"), existing[0]),
+            )
+        else:
+            database.execute(
+                "INSERT INTO source_archive_links VALUES (?,?,?,?,?,?)",
+                (source[0], document[0], page, entry["status"], entry.get("note"), entry.get("transcription")),
+            )
+
+
+def build(gedcom_path, database_path, archive_root=None, source_links_path=None, media_root=None,
+          archive_index_path=None):
     destination = Path(database_path).expanduser()
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(prefix="stammbaum-", suffix=".sqlite", dir=destination.parent, delete=False) as temporary:
@@ -195,11 +293,16 @@ def build(gedcom_path, database_path, archive_root=None):
         try:
             database.executescript(SCHEMA)
             import_gedcom(database, gedcom_path)
-            if archive_root:
+            if archive_index_path:
+                import_archive_index(database, archive_index_path)
+            elif archive_root:
                 index_archive(database, archive_root)
+            match_source_media(database, media_root, archive_root)
+            if source_links_path:
+                import_source_links(database, source_links_path)
             database.commit()
             counts = {table: database.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                      for table in ("people", "families", "sources", "facts", "citations", "media", "media_links", "archive_files")}
+                      for table in ("people", "families", "sources", "facts", "citations", "media", "media_links", "archive_files", "source_archive_links")}
         finally:
             database.close()
         temporary_path.chmod(0o600)
@@ -215,5 +318,9 @@ if __name__ == "__main__":
     parser.add_argument("--gedcom", required=True)
     parser.add_argument("--database", required=True)
     parser.add_argument("--archive-root")
+    parser.add_argument("--source-links")
+    parser.add_argument("--media-root")
+    parser.add_argument("--archive-index")
     arguments = parser.parse_args()
-    print(json.dumps(build(arguments.gedcom, arguments.database, arguments.archive_root), ensure_ascii=False))
+    print(json.dumps(build(arguments.gedcom, arguments.database, arguments.archive_root, arguments.source_links,
+                           arguments.media_root, arguments.archive_index), ensure_ascii=False))
